@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FirewallAudit</title>
+<style>
+:root {
+  --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2e3248;
+  --text:#e2e8f0; --muted:#8892a4; --accent:#4f8ef7;
+  --critical:#e74c3c; --high:#e67e22; --medium:#f1c40f; --low:#27ae60;
+  --fm:#3b82f6; --pa:#f97316; --radius:10px; --shadow:0 4px 24px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+input,select,button{font-family:inherit}
+
+/* ── Login ───────────────────────────────────────────── */
+#loginScreen{
+  display:none;position:fixed;inset:0;background:var(--bg);
+  z-index:200;align-items:center;justify-content:center;
+}
+#loginScreen.show{display:flex}
+.login-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:16px;padding:40px;width:380px;box-shadow:var(--shadow);
+}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo .icon{font-size:48px;display:block;margin-bottom:8px}
+.login-logo h1{font-size:22px;font-weight:700}
+.login-logo p{color:var(--muted);font-size:13px;margin-top:4px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.field input{
+  width:100%;background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:10px 12px;color:var(--text);font-size:14px;
+}
+.field input:focus{outline:none;border-color:var(--accent)}
+.login-err{background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);
+  color:var(--critical);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px;display:none}
+.btn-login{
+  width:100%;padding:11px;background:var(--accent);color:#fff;border:none;
+  border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;
+  transition:background .15s;
+}
+.btn-login:hover{background:#3a7de8}
+.btn-login:disabled{opacity:.5;cursor:default}
+
+/* ── App shell ───────────────────────────────────────── */
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
+#app.show{display:flex}
+
+/* Header */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;height:54px;background:var(--surface);
+  border-bottom:1px solid var(--border);flex-shrink:0;gap:12px;
+}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;white-space:nowrap}
+.logo-sub{font-size:10px;color:var(--muted);font-weight:400}
+.header-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.user-chip{
+  display:flex;align-items:center;gap:7px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:20px;padding:4px 12px 4px 8px;font-size:13px;
+}
+.user-avatar{
+  width:24px;height:24px;border-radius:50%;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
+}
+.role-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.4px}
+.role-badge.admin{background:rgba(79,142,247,.2);color:var(--accent)}
+.role-badge.readonly{background:rgba(136,146,164,.15);color:var(--muted)}
+.last-scan{font-size:11px;color:var(--muted);white-space:nowrap}
+.btn{padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#3a7de8}
+.btn-success{background:#16a34a;color:#fff}
+.btn-success:hover{background:#15803d}
+.btn-ghost{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text)}
+.btn:disabled{opacity:.5;cursor:default}
+
+/* Stats bar */
+.stats-bar{
+  display:grid;grid-template-columns:repeat(5,1fr);gap:10px;
+  padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.stat-card{
+  background:var(--surface2);border-radius:var(--radius);padding:10px 14px;
+  border:1px solid var(--border);cursor:pointer;transition:border-color .15s;
+}
+.stat-card:hover,.stat-card.active{border-color:var(--accent)}
+.stat-card.active{background:rgba(79,142,247,.07)}
+.stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
+.stat-value{font-size:24px;font-weight:700;line-height:1}
+.stat-value.critical{color:var(--critical)}.stat-value.high{color:var(--high)}
+.stat-value.medium{color:var(--medium)}.stat-value.low{color:var(--low)}
+
+/* Layout */
+.layout{display:flex;flex:1;overflow:hidden}
+
+/* Sidebar */
+aside{
+  width:260px;min-width:260px;background:var(--surface);
+  border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;
+}
+.sidebar-hdr{padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:flex;justify-content:space-between;align-items:center}
+.sidebar-list{flex:1;overflow-y:auto;padding:6px}
+.plat-label{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}
+.plat-dot{width:7px;height:7px;border-radius:50%}
+.plat-dot.fm{background:var(--fm)}.plat-dot.pa{background:var(--pa)}
+.dev-item{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:7px;cursor:pointer;transition:background .12s;margin-bottom:2px}
+.dev-item:hover{background:var(--surface2)}
+.dev-item.active{background:rgba(79,142,247,.12);border-left:3px solid var(--accent);padding-left:6px}
+.dev-name{flex:1;font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dev-cust{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dev-host{font-size:10px;color:var(--accent);font-family:monospace;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badges{display:flex;gap:3px;flex-shrink:0}
+.badge{padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700}
+.badge.critical{background:rgba(231,76,60,.2);color:var(--critical)}
+.badge.high{background:rgba(230,126,34,.2);color:var(--high)}
+.badge.medium{background:rgba(241,196,15,.2);color:var(--medium)}
+.badge.low{background:rgba(39,174,96,.2);color:var(--low)}
+
+/* Main */
+main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.filters{display:flex;align-items:center;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
+.search-box{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 11px;color:var(--text);font-size:13px}
+.search-box:focus{outline:none;border-color:var(--accent)}
+.fsel{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-size:13px;cursor:pointer}
+.fsel:focus{outline:none;border-color:var(--accent)}
+.fcount{font-size:11px;color:var(--muted);white-space:nowrap}
+.table-wrap{flex:1;overflow-y:auto;padding:14px 18px}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--surface2)}
+th{text-align:left;padding:9px 11px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+.finding-row{border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.finding-row:hover{background:var(--surface2)}
+td{padding:9px 11px;vertical-align:middle}
+.sev-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+.sev-pill.critical{background:rgba(231,76,60,.15);color:var(--critical);border:1px solid rgba(231,76,60,.3)}
+.sev-pill.high{background:rgba(230,126,34,.15);color:var(--high);border:1px solid rgba(230,126,34,.3)}
+.sev-pill.medium{background:rgba(241,196,15,.15);color:var(--medium);border:1px solid rgba(241,196,15,.3)}
+.sev-pill.low{background:rgba(39,174,96,.15);color:var(--low);border:1px solid rgba(39,174,96,.3)}
+.plat-tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase}
+.plat-tag.fm{background:rgba(59,130,246,.15);color:var(--fm)}
+.plat-tag.pa{background:rgba(249,115,22,.15);color:var(--pa)}
+.st-pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600}
+.st-pill.open{background:rgba(136,146,164,.15);color:var(--muted)}
+.st-pill.acknowledged{background:rgba(79,142,247,.15);color:var(--accent)}
+.st-pill.in_progress{background:rgba(241,196,15,.15);color:var(--medium)}
+.st-pill.resolved{background:rgba(39,174,96,.15);color:var(--low)}
+.empty-state{text-align:center;padding:70px 20px;color:var(--muted)}
+.empty-icon{font-size:44px;margin-bottom:10px}
+
+/* Modal */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:660px;max-width:96vw;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow);padding:26px}
+.modal-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+.modal-title{font-size:16px;font-weight:700;line-height:1.3;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.modal-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 6px}
+.modal-close:hover{color:var(--text)}
+.dsec{margin-bottom:16px}
+.dlabel{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:5px}
+.dtext{color:var(--text);line-height:1.6;font-size:13px}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.dkv{background:var(--surface2);border-radius:7px;padding:8px 11px}
+.dkv-k{font-size:10px;color:var(--muted);margin-bottom:2px}
+.dkv-v{font-size:13px;font-weight:500;word-break:break-all}
+.rec-box{background:rgba(39,174,96,.08);border:1px solid rgba(39,174,96,.25);border-radius:8px;padding:11px 13px;color:var(--text);font-size:13px;line-height:1.6}
+
+/* Status editor */
+.status-editor{
+  background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+  padding:14px;margin-top:10px;
+}
+.status-editor .dlabel{margin-bottom:10px}
+.status-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.st-btn{
+  padding:5px 12px;border-radius:20px;border:1px solid var(--border);
+  background:var(--surface);color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;
+}
+.st-btn:hover{border-color:var(--accent);color:var(--text)}
+.st-btn.active{color:#fff}
+.st-btn.active.open{background:#555;border-color:#777}
+.st-btn.active.acknowledged{background:var(--accent);border-color:var(--accent)}
+.st-btn.active.in_progress{background:#b7860a;border-color:#b7860a;color:#fff}
+.st-btn.active.resolved{background:#16a34a;border-color:#16a34a}
+.st-input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:13px;margin-bottom:8px}
+.st-input:focus{outline:none;border-color:var(--accent)}
+.st-save-btn{padding:7px 18px;background:var(--accent);color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600}
+.st-save-btn:hover{background:#3a7de8}
+.readonly-notice{font-size:12px;color:var(--muted);font-style:italic;padding:6px 0}
+
+/* Hist modal */
+.hist-table{width:100%;border-collapse:collapse;font-size:13px}
+.hist-table th{background:var(--surface2);padding:8px 10px;text-align:left;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.hist-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.status-dot.completed{background:var(--low)}.status-dot.running{background:var(--medium)}.status-dot.failed{background:var(--critical)}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinning{animation:spin .8s linear infinite;display:inline-block}
+</style>
+</head>
+<body>
+
+<!-- ── Login ekranı ── -->
+<div id="loginScreen" class="show">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="icon">🛡️</span>
+      <h1>FirewallAudit</h1>
+      <p>Güvenlik Zafiyet Tarama Paneli</p>
+    </div>
+    <div class="login-err" id="loginErr"></div>
+    <div class="field">
+      <label>Kullanıcı Adı</label>
+      <input id="inputUser" type="text" placeholder="admin" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <div class="field">
+      <label>Parola</label>
+      <input id="inputPass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <button class="btn-login" id="loginBtn" onclick="doLogin()">Giriş Yap</button>
+  </div>
+</div>
+
+<!-- ── Ana uygulama ── -->
+<div id="app">
+
+  <header>
+    <div class="logo">
+      <span>🛡️</span>
+      <div><div>FirewallAudit</div><div class="logo-sub">Güvenlik Zafiyet Paneli</div></div>
+    </div>
+    <div class="header-right">
+      <span class="last-scan" id="lastScan">—</span>
+      <button class="btn btn-ghost" id="histBtn" onclick="openHistory()">📋 Geçmiş</button>
+      <button class="btn btn-success" onclick="exportExcel()">⬇ Excel</button>
+      <button class="btn btn-primary" id="scanBtn" onclick="triggerScan()" style="display:none">▶ Tara</button>
+      <div class="user-chip">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <span id="userName">—</span>
+        <span class="role-badge" id="roleBadge">—</span>
+        <button class="btn-ghost" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:12px" onclick="doLogout()" title="Çıkış">✕</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat-card" onclick="filterBySev('all')">
+      <div class="stat-label">Toplam Bulgu</div><div class="stat-value" id="statTotal">—</div>
+    </div>
+    <div class="stat-card" onclick="filterBySev('critical')">
+      <div class="stat-label">🔴 Kritik</div><div class="stat-value critical" id="statCritical">—</div>
+    </div>
+    <div class="stat-card" onclick="filterBySev('high')">
+      <div class="stat-label">🟠 Yüksek</div><div class="stat-value high" id="statHigh">—</div>
+    </div>
+    <div class="stat-card" onclick="filterBySev('medium')">
+      <div class="stat-label">🟡 Orta</div><div class="stat-value medium" id="statMedium">—</div>
+    </div>
+    <div class="stat-card" onclick="filterBySev('low')">
+      <div class="stat-label">🟢 Düşük</div><div class="stat-value low" id="statLow">—</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside>
+      <div class="sidebar-hdr"><span>Cihazlar</span></div>
+      <div class="sidebar-list" id="deviceList"><div style="padding:18px;text-align:center;color:var(--muted)">Yükleniyor...</div></div>
+    </aside>
+
+    <main>
+      <div class="filters">
+        <input class="search-box" id="searchBox" type="text" placeholder="🔍  Kural adı, müşteri, zafiyet ara..." oninput="applyFilters()"/>
+        <select class="fsel" id="sevFilter" onchange="applyFilters()">
+          <option value="all">Tüm Önem</option>
+          <option value="critical">🔴 Kritik</option>
+          <option value="high">🟠 Yüksek</option>
+          <option value="medium">🟡 Orta</option>
+          <option value="low">🟢 Düşük</option>
+        </select>
+        <select class="fsel" id="platFilter" onchange="applyFilters()">
+          <option value="all">Tüm Platform</option>
+          <option value="fortimanager">FortiManager</option>
+          <option value="paloalto">Palo Alto</option>
+        </select>
+        <select class="fsel" id="stFilter" onchange="applyFilters()">
+          <option value="all">Tüm Durum</option>
+          <option value="open">Açık</option>
+          <option value="acknowledged">Onaylandı</option>
+          <option value="in_progress">İşlemde</option>
+          <option value="resolved">Çözüldü</option>
+        </select>
+        <span class="fcount" id="findingCount">— bulgu</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Önem</th><th>Durum</th><th>Platform</th>
+              <th>Müşteri / Cihaz</th><th>Kural</th><th>Zafiyet</th>
+            </tr>
+          </thead>
+          <tbody id="findingsBody">
+            <tr><td colspan="6" class="empty-state"><div class="empty-icon">⏳</div><div>Yükleniyor...</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ── Detay Modal ── -->
+<div class="overlay" id="overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-title" id="modalTitle">—</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ── Geçmiş Modal ── -->
+<div class="overlay" id="histOverlay" onclick="closeHistory(event)">
+  <div class="modal" style="width:700px" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-title">📋 Tarama Geçmişi</div>
+      <button class="modal-close" onclick="closeHistory()">✕</button>
+    </div>
+    <div id="histBody"><div style="text-align:center;padding:30px;color:var(--muted)">Yükleniyor...</div></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+/* ── Auth state ─────────────────────────────────────────────────── */
+let token = localStorage.getItem('fw_token') || '';
+let currentUser = JSON.parse(localStorage.getItem('fw_user') || 'null');
+let isAdmin = false;
+let allFindings = [];
+let activeDevice = 'all';
+let currentFinding = null;
+let currentStatus = 'open';
+
+const SEV_ICONS   = {critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
+const SEV_LABELS  = {critical:'Kritik',high:'Yüksek',medium:'Orta',low:'Düşük'};
+const STAT_LABELS = {open:'Açık',acknowledged:'Onaylandı',in_progress:'İşlemde',resolved:'Çözüldü'};
+const STAT_ICONS  = {open:'⚪',acknowledged:'🔵',in_progress:'🟡',resolved:'✅'};
+
+/* ── Fetch wrapper ─────────────────────────────────────────────── */
+async function api(path, opts = {}) {
+  const headers = {'Content-Type': 'application/json'};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(API + path, {...opts, headers: {...headers, ...(opts.headers||{})}});
+  if (res.status === 401) { doLogout(); return null; }
+  return res;
+}
+
+/* ── Login / Logout ─────────────────────────────────────────────── */
+async function doLogin() {
+  const u = document.getElementById('inputUser').value.trim();
+  const p = document.getElementById('inputPass').value;
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginErr');
+  if (!u || !p) return;
+  btn.disabled = true; btn.textContent = 'Giriş yapılıyor...'; err.style.display = 'none';
+  try {
+    const form = new URLSearchParams({username: u, password: p});
+    const res  = await fetch(API + '/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: form,
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      err.textContent = d.detail || 'Giriş başarısız.';
+      err.style.display = 'block';
+      return;
+    }
+    const data = await res.json();
+    token = data.access_token;
+    currentUser = {username: data.username, full_name: data.full_name, role: data.role};
+    localStorage.setItem('fw_token', token);
+    localStorage.setItem('fw_user', JSON.stringify(currentUser));
+    showApp();
+  } finally {
+    btn.disabled = false; btn.textContent = 'Giriş Yap';
+  }
+}
+
+function doLogout() {
+  token = ''; currentUser = null;
+  localStorage.removeItem('fw_token'); localStorage.removeItem('fw_user');
+  document.getElementById('inputPass').value = '';
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('loginScreen').classList.add('show');
+}
+
+function showApp() {
+  document.getElementById('loginScreen').classList.remove('show');
+  document.getElementById('app').classList.add('show');
+  isAdmin = currentUser?.role === 'admin';
+
+  // Kullanıcı bilgisi
+  const name = currentUser?.username || '?';
+  document.getElementById('userAvatar').textContent = name[0].toUpperCase();
+  document.getElementById('userName').textContent = currentUser?.full_name || name;
+  const rb = document.getElementById('roleBadge');
+  rb.textContent = isAdmin ? 'Admin' : 'Okuma';
+  rb.className   = 'role-badge ' + (isAdmin ? 'admin' : 'readonly');
+
+  // Admin-only: tarama butonu
+  document.getElementById('scanBtn').style.display = isAdmin ? 'flex' : 'none';
+
+  init();
+}
+
+/* ── Bootstrap ─────────────────────────────────────────────────── */
+async function init() {
+  await Promise.all([loadSummary(), loadDevices()]);
+  await loadFindings();
+}
+
+/* ── API çağrıları ─────────────────────────────────────────────── */
+async function loadSummary() {
+  const res = await api('/api/summary');
+  if (!res) return;
+  const d = await res.json();
+  document.getElementById('statTotal').textContent    = d.total_findings;
+  document.getElementById('statCritical').textContent = d.findings_by_severity?.critical ?? 0;
+  document.getElementById('statHigh').textContent     = d.findings_by_severity?.high ?? 0;
+  document.getElementById('statMedium').textContent   = d.findings_by_severity?.medium ?? 0;
+  document.getElementById('statLow').textContent      = d.findings_by_severity?.low ?? 0;
+  if (d.last_scan) {
+    const dt = new Date(d.last_scan);
+    document.getElementById('lastScan').textContent = `Son tarama: ${dt.toLocaleString('tr-TR')}`;
+  }
+}
+
+async function loadDevices() {
+  const res = await api('/api/devices');
+  if (!res) return;
+  const devices = await res.json();
+  renderDevices(devices);
+}
+
+async function loadFindings(deviceId='all', severity='all', platform='all', fstatus='all', search='') {
+  let url = '/api/findings?limit=500';
+  if (deviceId && deviceId !== 'all')  url += `&device_id=${encodeURIComponent(deviceId)}`;
+  if (severity && severity !== 'all')  url += `&severity=${severity}`;
+  if (platform && platform !== 'all')  url += `&platform=${platform}`;
+  if (fstatus  && fstatus  !== 'all')  url += `&status=${fstatus}`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  const res = await api(url);
+  if (!res) return;
+  const data = await res.json();
+  allFindings = data.findings;
+  renderFindings(allFindings);
+  document.getElementById('findingCount').textContent = `${data.total} bulgu`;
+}
+
+async function triggerScan() {
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinning">⟳</span> Taranıyor...';
+  try {
+    await api('/api/scan', {method:'POST'});
+    await init();
+  } finally {
+    btn.disabled = false; btn.innerHTML = '▶ Tara';
+  }
+}
+
+function exportExcel() { window.location.href = API + '/api/report/excel?token=' + encodeURIComponent(token); }
+
+/* ── Render: cihazlar ──────────────────────────────────────────── */
+function renderDevices(devices) {
+  const fm = devices.filter(d => d.platform === 'fortimanager');
+  const pa = devices.filter(d => d.platform === 'paloalto');
+  let html = `<div class="dev-item ${activeDevice==='all'?'active':''}" onclick="selectDevice('all',this)">
+    <div><div class="dev-name">Tüm Cihazlar</div></div></div>`;
+  if (fm.length) {
+    html += `<div style="margin-top:6px"><div class="plat-label"><span class="plat-dot fm"></span>FortiManager</div>`;
+    fm.forEach(d => html += devItem(d));
+    html += '</div>';
+  }
+  if (pa.length) {
+    html += `<div style="margin-top:4px"><div class="plat-label"><span class="plat-dot pa"></span>Palo Alto</div>`;
+    pa.forEach(d => html += devItem(d));
+    html += '</div>';
+  }
+  document.getElementById('deviceList').innerHTML = html;
+}
+
+function devItem(d) {
+  const a = activeDevice === d.id ? 'active' : '';
+  const b = ['critical','high','medium','low'].filter(s=>d.findings[s]>0)
+    .map(s=>`<span class="badge ${s}">${d.findings[s]}</span>`).join('');
+  const displayName = d.label && d.label !== d.name ? d.label : d.name;
+  const hostLine = d.host ? `<div class="dev-host">${esc(d.host)}</div>` : '';
+  return `<div class="dev-item ${a}" onclick="selectDevice('${d.id}',this)">
+    <div style="flex:1;min-width:0">
+      <div class="dev-name">${esc(displayName)}</div>
+      ${hostLine}
+      <div class="dev-cust">${esc(d.customer)}</div>
+    </div>
+    <div class="badges">${b}</div>
+  </div>`;
+}
+
+/* ── Render: bulgular ──────────────────────────────────────────── */
+function renderFindings(findings) {
+  const tbody = document.getElementById('findingsBody');
+  if (!findings.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><div class="empty-icon">✅</div><div>Bu filtre için bulgu yok</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = findings.map((f,i) => `
+    <tr class="finding-row" onclick="openModal(${i})">
+      <td><span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span></td>
+      <td><span class="st-pill ${f.status}">${STAT_ICONS[f.status]||''} ${STAT_LABELS[f.status]||f.status}</span></td>
+      <td><span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FM':'PA'}</span></td>
+      <td>
+        <div style="font-weight:500">${esc(f.customer)}</div>
+        <div style="font-size:11px;color:var(--muted)">${esc(f.device_label||f.device_name)}</div>
+        ${f.device_host ? `<div style="font-size:10px;color:var(--accent);font-family:monospace">${esc(f.device_host)}</div>` : ''}
+      </td>
+      <td>
+        <div style="font-weight:500">${esc(f.rule_name)}</div>
+        <div style="font-size:11px;color:var(--muted)">ID: ${esc(f.rule_id)}</div>
+      </td>
+      <td style="color:var(--text);font-weight:500">${esc(f.check_name)}</td>
+    </tr>`).join('');
+}
+
+/* ── Modal ──────────────────────────────────────────────────────── */
+function openModal(idx) {
+  currentFinding = allFindings[idx];
+  if (!currentFinding) return;
+  const f = currentFinding;
+  currentStatus = f.status || 'open';
+
+  document.getElementById('modalTitle').innerHTML =
+    `<span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span>${esc(f.check_name)}`;
+
+  const kvs = Object.entries(f.rule_details||{})
+    .map(([k,v]) => `<div class="dkv"><div class="dkv-k">${esc(k)}</div><div class="dkv-v">${esc(String(v))}</div></div>`)
+    .join('');
+
+  const stEditor = isAdmin ? `
+    <div class="status-editor">
+      <div class="dlabel">Durum Güncelle (Admin)</div>
+      <div class="status-row">
+        ${['open','acknowledged','in_progress','resolved'].map(s=>`
+          <button class="st-btn ${s} ${currentStatus===s?'active':''}" onclick="setStatus('${s}')"
+            >${STAT_ICONS[s]} ${STAT_LABELS[s]}</button>`).join('')}
+      </div>
+      <input class="st-input" id="stComment" placeholder="Yorum (opsiyonel)..." value="${esc(f.status_comment||'')}"/>
+      <input class="st-input" id="stAssigned" placeholder="Sorumlu kişi..." value="${esc(f.assigned_to||'')}"/>
+      <button class="st-save-btn" onclick="saveStatus()">💾 Kaydet</button>
+      ${f.status_updated_by ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">Son güncelleme: ${esc(f.status_updated_by)} — ${f.status_updated_at ? new Date(f.status_updated_at).toLocaleString('tr-TR') : ''}</div>` : ''}
+    </div>` : `
+    <div class="status-editor">
+      <div class="dlabel">Mevcut Durum</div>
+      <span class="st-pill ${f.status}">${STAT_ICONS[f.status]} ${STAT_LABELS[f.status]||f.status}</span>
+      ${f.status_comment ? `<div style="margin-top:8px;font-size:13px;color:var(--muted)">${esc(f.status_comment)}</div>`:''}
+      <div class="readonly-notice" style="margin-top:8px">Durum değiştirme yetkisi: yalnızca Admin</div>
+    </div>`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="dsec">
+      <div class="dlabel">Müşteri & Cihaz</div>
+      <div class="dtext">
+        <strong>${esc(f.customer)}</strong>
+        <div style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FortiManager':'Palo Alto'}</span>
+          <span>${esc(f.device_label||f.device_name)}</span>
+          ${f.device_host ? `<code style="font-size:11px;color:var(--accent);background:var(--surface2);padding:2px 6px;border-radius:4px">${esc(f.device_host)}</code>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="dsec">
+      <div class="dlabel">Kural</div>
+      <div class="dtext"><strong>${esc(f.rule_name)}</strong> <span style="color:var(--muted)">(ID: ${esc(f.rule_id)})</span></div>
+    </div>
+    <div class="dsec">
+      <div class="dlabel">Zafiyet Açıklaması</div>
+      <div class="dtext">${esc(f.description)}</div>
+    </div>
+    ${kvs ? `<div class="dsec"><div class="dlabel">Kural Detayları</div><div class="dgrid">${kvs}</div></div>`:''}
+    <div class="dsec">
+      <div class="dlabel">✅ Öneri</div>
+      <div class="rec-box">${esc(f.recommendation)}</div>
+    </div>
+    ${stEditor}
+    <div style="font-size:11px;color:var(--muted);margin-top:12px">Tespit: ${new Date(f.detected_at).toLocaleString('tr-TR')}</div>`;
+
+  document.getElementById('overlay').classList.add('open');
+}
+
+function setStatus(s) {
+  currentStatus = s;
+  document.querySelectorAll('.st-btn').forEach(b => {
+    b.classList.remove('active');
+    if (b.classList.contains(s)) b.classList.add('active');
+  });
+}
+
+async function saveStatus() {
+  if (!currentFinding) return;
+  const comment    = document.getElementById('stComment')?.value || '';
+  const assignedTo = document.getElementById('stAssigned')?.value || '';
+  const res = await api(`/api/findings/${currentFinding.fingerprint}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({status: currentStatus, comment, assigned_to: assignedTo}),
+  });
+  if (!res || !res.ok) { alert('Güncelleme başarısız.'); return; }
+  closeModal();
+  await loadFindings(
+    activeDevice,
+    document.getElementById('sevFilter').value,
+    document.getElementById('platFilter').value,
+    document.getElementById('stFilter').value,
+    document.getElementById('searchBox').value,
+  );
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('overlay'))
+    document.getElementById('overlay').classList.remove('open');
+}
+
+/* ── Tarama geçmişi ─────────────────────────────────────────────── */
+async function openHistory() {
+  document.getElementById('histOverlay').classList.add('open');
+  const res = await api('/api/scan/history?limit=15');
+  if (!res) return;
+  const sessions = await res.json();
+  const rows = sessions.map(s => {
+    const dot = `<span class="status-dot ${s.status}"></span>`;
+    const dur = s.finished_at
+      ? Math.round((new Date(s.finished_at)-new Date(s.started_at))/1000) + 's'
+      : '—';
+    return `<tr>
+      <td>${dot}${s.status==='completed'?'Tamamlandı':s.status==='running'?'Çalışıyor':'Başarısız'}</td>
+      <td>${new Date(s.started_at).toLocaleString('tr-TR')}</td>
+      <td>${s.triggered_by}</td>
+      <td>${s.total_devices}</td>
+      <td>${s.total_rules}</td>
+      <td><strong style="color:var(--critical)">${s.total_findings}</strong></td>
+      <td>${dur}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('histBody').innerHTML = `
+    <table class="hist-table">
+      <thead><tr><th>Durum</th><th>Başlangıç</th><th>Tetikleyen</th><th>Cihaz</th><th>Kural</th><th>Bulgu</th><th>Süre</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Tarama geçmişi bulunamadı</td></tr>'}</tbody>
+    </table>`;
+}
+
+function closeHistory(e) {
+  if (!e || e.target === document.getElementById('histOverlay'))
+    document.getElementById('histOverlay').classList.remove('open');
+}
+
+/* ── Filtreler ──────────────────────────────────────────────────── */
+function selectDevice(id, el) {
+  activeDevice = id;
+  document.querySelectorAll('.dev-item').forEach(e => e.classList.remove('active'));
+  el?.classList.add('active');
+  applyFilters();
+}
+
+function filterBySev(sev) {
+  document.getElementById('sevFilter').value = sev;
+  document.querySelectorAll('.stat-card').forEach((c,i)=>c.classList.toggle('active', ['all','critical','high','medium','low'][i]===sev));
+  applyFilters();
+}
+
+function applyFilters() {
+  loadFindings(
+    activeDevice,
+    document.getElementById('sevFilter').value,
+    document.getElementById('platFilter').value,
+    document.getElementById('stFilter').value,
+    document.getElementById('searchBox').value.trim(),
+  );
+}
+
+/* ── Yardımcılar ────────────────────────────────────────────────── */
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeHistory(); }
+});
+
+/* ── Başlat ─────────────────────────────────────────────────────── */
+if (token && currentUser) {
+  showApp();
+} else {
+  document.getElementById('loginScreen').classList.add('show');
+  setTimeout(() => document.getElementById('inputUser').focus(), 100);
+}
+</script>
+</body>
+</html>
