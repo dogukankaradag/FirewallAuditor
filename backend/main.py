@@ -35,6 +35,8 @@ from jose import JWTError, jwt as jose_jwt
 from .database import SessionLocal, get_db, init_db
 from .mock_data import FORTIMANAGER_MOCK, PALOALTO_MOCK
 from .connectors import FIREWALL_DEVICES
+from .fm_client import FortiManagerClient
+from .pa_client import PaloAltoClient
 from .scheduler import (
     get_scheduler_status,
     set_scheduler_enabled,
@@ -67,23 +69,49 @@ def _do_scan(db: Session, triggered_by: str = "manual") -> db_models.ScanSession
 
     try:
         # Her fiziksel cihazı sırayla tara.
-        # Mock modda: FM cihazları FORTIMANAGER_MOCK, PA cihazları PALOALTO_MOCK kullanır.
-        # Gerçek entegrasyonda: cihazın host/credentials bilgisiyle API çağrısı yapılır.
+        # mock: True  → yerel mock_data kullanılır
+        # mock: False → gerçek cihaz API'sına bağlanılır
         all_results = []
         fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager"]
         pa_devices  = [d for d in FIREWALL_DEVICES if d["type"] == "paloalto"]
 
-        # Mock: FM cihazları arasında ADOM'ları böl (ya da hepsine aynı veriyi ver)
-        # Gerçek entegrasyonda her cihaz kendi API'sından veri çeker.
         for dev in fm_devices:
-            res = analyzer.scan_device(dev, fm_data=FORTIMANAGER_MOCK)
-            all_results.extend(res)
-            break  # Mock'ta tek cihaz yeterli; gerçekte döngü devam eder
+            label = dev.get("label", dev["id"])
+            try:
+                if dev.get("mock", True):
+                    fm_data = FORTIMANAGER_MOCK
+                else:
+                    client = FortiManagerClient(
+                        host=dev["host"], port=dev["port"],
+                        username=dev["username"], password=dev["password"],
+                    )
+                    fm_data = client.fetch_all()
+                res = analyzer.scan_device(dev, fm_data=fm_data)
+                all_results.extend(res)
+            except Exception as e:
+                import logging as _log
+                _log.getLogger(__name__).error(
+                    f"FortiManager cihazı '{label}' taranamadı: {e}", exc_info=True
+                )
 
         for dev in pa_devices:
-            res = analyzer.scan_device(dev, pa_data=PALOALTO_MOCK)
-            all_results.extend(res)
-            break  # Mock'ta tek cihaz yeterli; gerçekte döngü devam eder
+            label = dev.get("label", dev["id"])
+            try:
+                if dev.get("mock", True):
+                    pa_data = PALOALTO_MOCK
+                else:
+                    client = PaloAltoClient(
+                        host=dev["host"], port=dev["port"],
+                        username=dev["username"], password=dev["password"],
+                    )
+                    pa_data = client.fetch_all()
+                res = analyzer.scan_device(dev, pa_data=pa_data)
+                all_results.extend(res)
+            except Exception as e:
+                import logging as _log
+                _log.getLogger(__name__).error(
+                    f"Palo Alto cihazı '{label}' taranamadı: {e}", exc_info=True
+                )
 
         results = all_results
         total_rules = total_findings = 0

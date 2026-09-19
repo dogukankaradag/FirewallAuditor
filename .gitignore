@@ -47,3 +47,6 @@ logs/
 htmlcov/
 *.bak
 reset_db.py
+
+# Cihaz bağlantı bilgileri (IP, kullanıcı adı, şifre) - git'te saklanmaz
+backend/connectors.py
