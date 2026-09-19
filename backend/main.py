@@ -61,15 +61,17 @@ def make_fingerprint(platform: str, device_name: str, rule_id: str, check_name: 
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _do_scan_core(db: Session, session: db_models.ScanSession):
+def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optional[list[str]] = None):
     """Mevcut bir ScanSession kaydı için taramayı çalıştırır."""
     try:
         # Her fiziksel cihazı sırayla tara.
         # mock: True  → yerel mock_data kullanılır
         # mock: False → gerçek cihaz API'sına bağlanılır
         all_results = []
-        fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager"]
-        pa_devices  = [d for d in FIREWALL_DEVICES if d["type"] == "paloalto"]
+        # Belirli cihazlar seçildiyse yalnızca onları tara
+        devices_to_scan = FIREWALL_DEVICES if not device_ids else [d for d in FIREWALL_DEVICES if d["id"] in device_ids]
+        fm_devices = [d for d in devices_to_scan if d["type"] == "fortimanager"]
+        pa_devices  = [d for d in devices_to_scan if d["type"] == "paloalto"]
 
         for dev in fm_devices:
             label = dev.get("label", dev["id"])
@@ -238,6 +240,10 @@ class UserCreate(BaseModel):
     role: str = "readonly"
 
 
+class ScanRequest(BaseModel):
+    device_ids: Optional[list[str]] = None   # None = tüm cihazlar
+
+
 # ── Auth endpoint'leri ────────────────────────────────────────────────
 
 @app.post("/api/auth/login")
@@ -326,6 +332,7 @@ _scan_lock = threading.Lock()
 
 @app.post("/api/scan")
 def trigger_scan(
+    body: ScanRequest = ScanRequest(),
     db: Session = Depends(get_db),
     current: db_models.User = Depends(require_admin),
 ):
@@ -342,13 +349,14 @@ def trigger_scan(
     session_id = session.id
 
     # Taramayı arka plan thread'inde çalıştır (sunucu bloklanmaz)
+    selected_ids = body.device_ids  # None = tüm cihazlar
     def _bg():
         bg_db = SessionLocal()
         try:
             bg_session = bg_db.query(db_models.ScanSession).filter(
                 db_models.ScanSession.id == session_id
             ).first()
-            _do_scan_core(bg_db, bg_session)
+            _do_scan_core(bg_db, bg_session, device_ids=selected_ids)
         except Exception as e:
             import logging as _l
             _l.getLogger(__name__).error(f"Arka plan tarama hatası: {e}", exc_info=True)

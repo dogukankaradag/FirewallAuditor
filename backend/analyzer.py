@@ -125,6 +125,45 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
                 details,
             ))
 
+        # 1b. Kaynak=Any (ama any-any-any değil): HIGH
+        src_any = _fm_is_any(src)
+        dst_any = _fm_is_any(dst)
+        svc_any = ("ALL" in [s.upper() for s in services] or _fm_is_any(services))
+        if action == "accept" and src_any and not (dst_any and svc_any):
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.HIGH,
+                "Kaynak Kısıtsız Erişim",
+                "Kaynak adres 'any/all' olarak tanımlanmış; hedef veya servis kısıtlaması mevcut olsa da "
+                "herhangi bir IP'den bu kurala erişilebilir.",
+                "Kaynak adres alanını yalnızca yetkili IP bloğu veya adres nesnesiyle sınırlandırın.",
+                details,
+            ))
+
+        # 1c. Hedef=Any, Kaynak=Spesifik: HIGH
+        if action == "accept" and dst_any and not src_any:
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.HIGH,
+                "Hedef Kısıtsız Erişim",
+                "Hedef adres 'any/all' olarak tanımlanmış. Trafik herhangi bir hedefe yönlendirilebilir; "
+                "veri sızıntısı ve yanal hareket riski oluşturur.",
+                "Hedef adres alanını yalnızca gerekli sunucu/subnet ile sınırlandırın.",
+                details,
+            ))
+
+        # 1d. Servis=ALL/Any, Kaynak ve Hedef Spesifik: MEDIUM
+        if action == "accept" and svc_any and not src_any and not dst_any:
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.MEDIUM,
+                "Tüm Servisler/Portlar Açık",
+                "Servis alanı 'ALL/any' olarak tanımlanmış. Kaynak ve hedef kısıtlı olsa da "
+                "tüm portlar üzerinden bağlantıya izin veriliyor.",
+                "Servis alanını yalnızca gerekli protokol ve portlarla sınırlandırın.",
+                details,
+            ))
+
         # 2. SSH internete açık: CRITICAL
         if action == "accept" and _fm_is_any(src) and "SSH" in [s.upper() for s in services]:
             findings.append(_finding(
@@ -307,6 +346,51 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 "Kaynak, hedef ve uygulama alanlarının tamamı 'any'. "
                 "Tüm trafiğe izin veren açık kapı kuralı.",
                 "Kuralı spesifik kaynak/hedef/uygulama kombinasyonuyla yeniden tanımlayın.",
+                details,
+            ))
+
+        # 1b. Kaynak=Any, Hedef=Any ama App=Spesifik (CRITICAL'dan kaçan): HIGH
+        pa_src_any = _pa_is_any(sources)
+        pa_dst_any = _pa_is_any(destinations)
+        pa_app_any = _pa_is_any(applications)
+        pa_svc_any = any(s.lower() == "any" for s in services)
+
+        if action == "allow" and pa_src_any and pa_dst_any and not pa_app_any:
+            findings.append(_finding(
+                Platform.PALOALTO, device_name, customer, rname, rname,
+                Severity.HIGH,
+                "Kaynak ve Hedef Kısıtsız",
+                "Kaynak ve hedef 'any' olarak tanımlanmış; yalnızca uygulama kısıtlaması mevcut. "
+                "Herhangi bir kaynak herhangi bir hedefe ulaşabilir.",
+                "Kaynak ve hedef alanlarını belirli zone, IP grubu veya adres nesnesiyle sınırlandırın.",
+                details,
+            ))
+
+        # 1c. Kaynak=Any, Hedef=Spesifik (not caught by check #8 below): duplication avoided
+        # (Check #8 already handles this case - keep as-is)
+
+        # 1d. Hedef=Any, Kaynak=Spesifik: HIGH
+        if action == "allow" and pa_dst_any and not pa_src_any:
+            findings.append(_finding(
+                Platform.PALOALTO, device_name, customer, rname, rname,
+                Severity.HIGH,
+                "Hedef Kısıtsız Erişim",
+                "Hedef adres 'any' olarak tanımlanmış. Kaynak kısıtlı olsa da trafik "
+                "herhangi bir hedefe yönlendirilebilir; veri sızıntısı riski oluşturur.",
+                "Hedef alanını yalnızca gerekli sunucu, zone veya adres grubuyla sınırlandırın.",
+                details,
+            ))
+
+        # 1e. Servis=Any (tüm portlar), Kaynak ve Hedef Spesifik: MEDIUM
+        if action == "allow" and pa_svc_any and not pa_src_any and not pa_dst_any:
+            findings.append(_finding(
+                Platform.PALOALTO, device_name, customer, rname, rname,
+                Severity.MEDIUM,
+                "Tüm Portlar Açık",
+                "Servis alanı 'any' olarak tanımlanmış; kaynak ve hedef kısıtlı olsa da "
+                "tüm TCP/UDP portlarına izin veriliyor.",
+                "Servis alanını yalnızca gerekli port ve protokollerle sınırlandırın. "
+                "'application-default' kullanmayı değerlendirin.",
                 details,
             ))
 

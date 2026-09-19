@@ -202,6 +202,21 @@ td{padding:9px 11px;vertical-align:middle}
 .status-dot.completed{background:var(--low)}.status-dot.running{background:var(--medium)}.status-dot.failed{background:var(--critical)}
 
 
+
+/* ── Cihaz seçim modal ──────────────────────────────────────── */
+#deviceModal .modal-body{padding:16px 20px}
+.device-list{list-style:none;padding:0;margin:0 0 16px}
+.device-list li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;transition:background .15s}
+.device-list li:hover{background:var(--bg)}
+.device-list li input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
+.device-list li .dev-icon{font-size:18px}
+.device-list li .dev-info{flex:1}
+.device-list li .dev-label{font-weight:600;font-size:13px}
+.device-list li .dev-type{font-size:11px;color:var(--muted);margin-top:1px}
+.device-modal-footer{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.device-modal-footer .select-all-wrap{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer}
+.device-modal-footer .select-all-wrap input{accent-color:var(--accent);cursor:pointer}
+
 /* ── Tarama banner ─────────────────────────────────── */
 #scanBanner{
   display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
@@ -273,7 +288,7 @@ td{padding:9px 11px;vertical-align:middle}
       <button class="btn btn-ghost" id="usersBtn" onclick="openUsers()" style="display:none">👥 Kullanıcılar</button>
       <button class="btn btn-ghost" id="histBtn" onclick="openHistory()">📋 Geçmiş</button>
       <button class="btn btn-success" onclick="exportExcel()">⬇ Excel</button>
-      <button class="btn btn-primary" id="scanBtn" onclick="triggerScan()" style="display:none">▶ Tara</button>
+      <button class="btn btn-primary" id="scanBtn" onclick="openDeviceModal()" style="display:none">▶ Tara</button>
       <div class="user-chip">
         <div class="user-avatar" id="userAvatar">?</div>
         <span id="userName">—</span>
@@ -371,6 +386,29 @@ td{padding:9px 11px;vertical-align:middle}
 </div>
 
 <!-- ── Detay Modal ── -->
+
+<!-- ── Cihaz seçim modal ── -->
+<div class="overlay" id="deviceOverlay" onclick="closeDeviceModal(event)">
+  <div class="modal" id="deviceModal" style="max-width:440px">
+    <div class="modal-header">
+      <span class="modal-title">🖥️ Taranacak Cihazları Seçin</span>
+      <button class="modal-close" onclick="closeDeviceModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <ul class="device-list" id="deviceList">
+        <li style="color:var(--muted);padding:10px">Cihazlar yükleniyor...</li>
+      </ul>
+      <div class="device-modal-footer">
+        <label class="select-all-wrap">
+          <input type="checkbox" id="selectAllDevices" onchange="toggleSelectAll(this.checked)">
+          Tümünü Seç
+        </label>
+        <button class="btn btn-primary" onclick="startScanWithDevices()">▶ Taramayı Başlat</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="overlay" onclick="closeModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-hdr">
@@ -548,7 +586,69 @@ async function loadFindings(deviceId='all', severity='all', platform='all', fsta
 
 let _scanPollInterval = null;
 
-async function triggerScan() {
+/* ── Cihaz seçim modal ──────────────────────────────────────────── */
+async function openDeviceModal() {
+  const overlay = document.getElementById('deviceOverlay');
+  const listEl  = document.getElementById('deviceList');
+  overlay.classList.add('open');
+  listEl.innerHTML = '<li style="color:var(--muted);padding:10px">Cihazlar yükleniyor...</li>';
+
+  const res = await api('/api/connectors');
+  if (!res) { listEl.innerHTML='<li style="color:var(--muted)">Cihaz listesi alınamadı.</li>'; return; }
+  const devices = await res.json();
+
+  if (!devices || !devices.length) {
+    listEl.innerHTML='<li style="color:var(--muted)">Tanımlı cihaz bulunamadı.</li>'; return;
+  }
+
+  listEl.innerHTML = devices.map(d => {
+    const icon = d.type === 'fortimanager' ? '🛡️' : '🔥';
+    const typeLabel = d.type === 'fortimanager' ? 'FortiManager' : 'Palo Alto';
+    return `<li onclick="toggleDeviceCheck('${d.id}')">
+      <input type="checkbox" id="dev_${d.id}" value="${d.id}" checked onchange="updateSelectAll()">
+      <span class="dev-icon">${icon}</span>
+      <div class="dev-info">
+        <div class="dev-label">${d.label}</div>
+        <div class="dev-type">${typeLabel}</div>
+      </div>
+    </li>`;
+  }).join('');
+
+  // Hepsini seç checkbox'ını güncelle
+  document.getElementById('selectAllDevices').checked = true;
+  updateSelectAll();
+}
+
+function toggleDeviceCheck(id) {
+  const cb = document.getElementById('dev_' + id);
+  if (cb) { cb.checked = !cb.checked; updateSelectAll(); }
+}
+
+function updateSelectAll() {
+  const all = document.querySelectorAll('#deviceList input[type="checkbox"]');
+  const checked = document.querySelectorAll('#deviceList input[type="checkbox"]:checked');
+  document.getElementById('selectAllDevices').checked = all.length > 0 && checked.length === all.length;
+  document.getElementById('selectAllDevices').indeterminate = checked.length > 0 && checked.length < all.length;
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('#deviceList input[type="checkbox"]').forEach(cb => cb.checked = checked);
+}
+
+function closeDeviceModal(e) {
+  if (!e || e.target === document.getElementById('deviceOverlay'))
+    document.getElementById('deviceOverlay').classList.remove('open');
+}
+
+async function startScanWithDevices() {
+  const checked = [...document.querySelectorAll('#deviceList input[type="checkbox"]:checked')];
+  if (!checked.length) { alert('Lütfen en az bir cihaz seçin.'); return; }
+  const deviceIds = checked.map(cb => cb.value);
+  document.getElementById('deviceOverlay').classList.remove('open');
+  await triggerScan(deviceIds);
+}
+
+async function triggerScan(deviceIds) {
   const btn    = document.getElementById('scanBtn');
   const banner = document.getElementById('scanBanner');
   const timerEl= document.getElementById('scanTimer');
@@ -556,7 +656,8 @@ async function triggerScan() {
   btn.disabled = true; btn.innerHTML = '<span class="spinning">⟳</span> Taranıyor...';
 
   // Taramayı başlat (anında döner)
-  const res = await api('/api/scan', {method:'POST'});
+  const body = deviceIds && deviceIds.length ? {device_ids: deviceIds} : {};
+  const res = await api('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   if (!res) { btn.disabled=false; btn.innerHTML='▶ Tara'; return; }
   const startData = await res.json();
 
