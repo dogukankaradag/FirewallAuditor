@@ -201,6 +201,35 @@ td{padding:9px 11px;vertical-align:middle}
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 .status-dot.completed{background:var(--low)}.status-dot.running{background:var(--medium)}.status-dot.failed{background:var(--critical)}
 
+
+/* ── Tarama banner ─────────────────────────────────── */
+#scanBanner{
+  display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  background:var(--surface);border:1px solid var(--accent);border-radius:12px;
+  padding:14px 24px;box-shadow:var(--shadow);z-index:150;
+  display:none;align-items:center;gap:14px;min-width:340px;
+}
+#scanBanner.show{display:flex}
+#scanBanner .spin-icon{font-size:22px;animation:spin .9s linear infinite;display:inline-block}
+#scanBanner .ban-text{flex:1}
+#scanBanner .ban-title{font-weight:700;font-size:14px;color:var(--accent)}
+#scanBanner .ban-sub{font-size:12px;color:var(--muted);margin-top:2px}
+
+/* ── Kullanıcı yönetim modal ────────────────────────── */
+.user-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px}
+.user-table th{background:var(--surface2);padding:8px 10px;text-align:left;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.user-table td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.active-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.active-dot.on{background:var(--low)}.active-dot.off{background:var(--muted)}
+.user-add-form{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px}
+.user-add-form .dlabel{margin-bottom:12px;font-size:13px;font-weight:700;color:var(--text)}
+.user-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.user-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
+.user-field input,.user-field select{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:13px}
+.user-field input:focus,.user-field select:focus{outline:none;border-color:var(--accent)}
+.user-err{background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:var(--critical);border-radius:7px;padding:8px 11px;font-size:12px;margin-bottom:10px;display:none}
+.user-ok{background:rgba(39,174,96,.1);border:1px solid rgba(39,174,96,.3);color:var(--low);border-radius:7px;padding:8px 11px;font-size:12px;margin-bottom:10px;display:none}
+
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -241,6 +270,7 @@ td{padding:9px 11px;vertical-align:middle}
     </div>
     <div class="header-right">
       <span class="last-scan" id="lastScan">—</span>
+      <button class="btn btn-ghost" id="usersBtn" onclick="openUsers()" style="display:none">👥 Kullanıcılar</button>
       <button class="btn btn-ghost" id="histBtn" onclick="openHistory()">📋 Geçmiş</button>
       <button class="btn btn-success" onclick="exportExcel()">⬇ Excel</button>
       <button class="btn btn-primary" id="scanBtn" onclick="triggerScan()" style="display:none">▶ Tara</button>
@@ -315,6 +345,28 @@ td{padding:9px 11px;vertical-align:middle}
         </table>
       </div>
     </main>
+  </div>
+</div>
+
+
+<!-- ── Tarama banner ── -->
+<div id="scanBanner">
+  <span class="spin-icon">⟳</span>
+  <div class="ban-text">
+    <div class="ban-title">Tarama devam ediyor...</div>
+    <div class="ban-sub" id="banSub">Cihazlara bağlanılıyor, lütfen bekleyin</div>
+  </div>
+  <span id="scanTimer" style="font-size:13px;font-weight:700;color:var(--accent);font-family:monospace">00:00</span>
+</div>
+
+<!-- ── Kullanıcı yönetim modal ── -->
+<div class="overlay" id="usersOverlay" onclick="closeUsers(event)">
+  <div class="modal" style="width:700px" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-title">👥 Kullanıcı Yönetimi</div>
+      <button class="modal-close" onclick="closeUsers()">✕</button>
+    </div>
+    <div id="usersBody"><div style="text-align:center;padding:30px;color:var(--muted)">Yükleniyor...</div></div>
   </div>
 </div>
 
@@ -430,8 +482,9 @@ function showApp() {
   rb.textContent = isAdmin ? 'Admin' : 'Okuma';
   rb.className   = 'role-badge ' + (isAdmin ? 'admin' : 'readonly');
 
-  // Admin-only: tarama butonu
+  // Admin-only: tarama ve kullanıcı butonu
   document.getElementById('scanBtn').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('usersBtn').style.display = isAdmin ? 'flex' : 'none';
 
   init();
 }
@@ -494,12 +547,35 @@ async function loadFindings(deviceId='all', severity='all', platform='all', fsta
 }
 
 async function triggerScan() {
-  const btn = document.getElementById('scanBtn');
+  const btn    = document.getElementById('scanBtn');
+  const banner = document.getElementById('scanBanner');
+  const timerEl= document.getElementById('scanTimer');
+  const subEl  = document.getElementById('banSub');
   btn.disabled = true; btn.innerHTML = '<span class="spinning">⟳</span> Taranıyor...';
+  banner.classList.add('show');
+
+  const start = Date.now();
+  const tick = setInterval(() => {
+    const s = Math.floor((Date.now()-start)/1000);
+    const mm = String(Math.floor(s/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    timerEl.textContent = mm+':'+ss;
+    if (s < 30) subEl.textContent = 'FortiManager\'e bağlanılıyor, ADOM\'lar alınıyor...';
+    else if (s < 60) subEl.textContent = 'Palo Alto cihazları taranıyor, vsys kuralları çekiliyor...';
+    else subEl.textContent = `${s} saniyedir tarama devam ediyor, 400+ vsys için bu normal...`;
+  }, 1000);
+
   try {
-    await api('/api/scan', {method:'POST'});
+    const res = await api('/api/scan', {method:'POST'});
+    if (res) {
+      const d = await res.json();
+      subEl.textContent = `✅ Tamamlandı — ${d.total_devices} cihaz, ${d.total_findings} bulgu`;
+      await new Promise(r => setTimeout(r, 1500));
+    }
     await init();
   } finally {
+    clearInterval(tick);
+    banner.classList.remove('show');
     btn.disabled = false; btn.innerHTML = '▶ Tara';
   }
 }
@@ -718,6 +794,97 @@ function applyFilters() {
     document.getElementById('stFilter').value,
     document.getElementById('searchBox').value.trim(),
   );
+}
+
+
+/* ── Kullanıcı yönetimi ──────────────────────────────────────────── */
+async function openUsers() {
+  document.getElementById('usersOverlay').classList.add('open');
+  await renderUsers();
+}
+
+function closeUsers(e) {
+  if (!e || e.target === document.getElementById('usersOverlay'))
+    document.getElementById('usersOverlay').classList.remove('open');
+}
+
+async function renderUsers() {
+  document.getElementById('usersBody').innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">Yükleniyor...</div>';
+  const res = await api('/api/auth/users');
+  if (!res) return;
+  const users = await res.json();
+  const rows = users.map(u => `
+    <tr>
+      <td><span class="active-dot ${u.is_active?'on':'off'}"></span>${esc(u.username)}</td>
+      <td>${esc(u.full_name||'—')}</td>
+      <td><span class="role-badge ${u.role}">${u.role==='admin'?'Admin':'Okuma'}</span></td>
+      <td>${new Date(u.created_at).toLocaleDateString('tr-TR')}</td>
+      <td>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px"
+          onclick="toggleUser(${u.id}, this)">
+          ${u.is_active ? '🔴 Devre Dışı' : '🟢 Aktif Et'}
+        </button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('usersBody').innerHTML = `
+    <table class="user-table">
+      <thead><tr><th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Rol</th><th>Oluşturulma</th><th>İşlem</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="user-add-form">
+      <div class="dlabel">➕ Yeni Kullanıcı Ekle</div>
+      <div class="user-err" id="userErr"></div>
+      <div class="user-ok"  id="userOk"></div>
+      <div class="user-grid">
+        <div class="user-field">
+          <label>Kullanıcı Adı *</label>
+          <input id="nuUsername" type="text" placeholder="kullanici"/>
+        </div>
+        <div class="user-field">
+          <label>Ad Soyad</label>
+          <input id="nuFullname" type="text" placeholder="Ad Soyad"/>
+        </div>
+        <div class="user-field">
+          <label>Şifre *</label>
+          <input id="nuPassword" type="password" placeholder="••••••••"/>
+        </div>
+        <div class="user-field">
+          <label>Rol *</label>
+          <select id="nuRole">
+            <option value="readonly">Okuma (Read-only)</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="addUser()" style="margin-top:4px">➕ Kullanıcı Ekle</button>
+    </div>`;
+}
+
+async function addUser() {
+  const username  = document.getElementById('nuUsername').value.trim();
+  const full_name = document.getElementById('nuFullname').value.trim();
+  const password  = document.getElementById('nuPassword').value;
+  const role      = document.getElementById('nuRole').value;
+  const errEl = document.getElementById('userErr');
+  const okEl  = document.getElementById('userOk');
+  errEl.style.display = 'none'; okEl.style.display = 'none';
+  if (!username || !password) { errEl.textContent='Kullanıcı adı ve şifre zorunlu.'; errEl.style.display='block'; return; }
+  if (password.length < 6) { errEl.textContent='Şifre en az 6 karakter olmalı.'; errEl.style.display='block'; return; }
+  const res = await api('/api/auth/users', {method:'POST', body: JSON.stringify({username, full_name, password, role})});
+  if (!res) { errEl.textContent='Sunucu hatası.'; errEl.style.display='block'; return; }
+  if (!res.ok) {
+    const d = await res.json().catch(()=>({}));
+    errEl.textContent = d.detail || 'Hata oluştu.'; errEl.style.display='block'; return;
+  }
+  okEl.textContent = `✅ "${username}" kullanıcısı oluşturuldu.`; okEl.style.display='block';
+  await renderUsers();
+}
+
+async function toggleUser(userId, btn) {
+  btn.disabled = true;
+  const res = await api(`/api/auth/users/${userId}`, {method:'PATCH'});
+  if (!res) { btn.disabled=false; return; }
+  await renderUsers();
 }
 
 /* ── Yardımcılar ────────────────────────────────────────────────── */
