@@ -546,38 +546,57 @@ async function loadFindings(deviceId='all', severity='all', platform='all', fsta
   document.getElementById('findingCount').textContent = `${data.total ?? 0} bulgu`;
 }
 
+let _scanPollInterval = null;
+
 async function triggerScan() {
   const btn    = document.getElementById('scanBtn');
   const banner = document.getElementById('scanBanner');
   const timerEl= document.getElementById('scanTimer');
   const subEl  = document.getElementById('banSub');
   btn.disabled = true; btn.innerHTML = '<span class="spinning">⟳</span> Taranıyor...';
-  banner.classList.add('show');
 
-  const start = Date.now();
+  // Taramayı başlat (anında döner)
+  const res = await api('/api/scan', {method:'POST'});
+  if (!res) { btn.disabled=false; btn.innerHTML='▶ Tara'; return; }
+  const startData = await res.json();
+
+  banner.classList.add('show');
+  const startTime = Date.now();
+
+  // Sayaç
   const tick = setInterval(() => {
-    const s = Math.floor((Date.now()-start)/1000);
+    const s = Math.floor((Date.now()-startTime)/1000);
     const mm = String(Math.floor(s/60)).padStart(2,'0');
     const ss = String(s%60).padStart(2,'0');
     timerEl.textContent = mm+':'+ss;
-    if (s < 30) subEl.textContent = 'FortiManager\'e bağlanılıyor, ADOM\'lar alınıyor...';
+    if (s < 20) subEl.textContent = 'FortiManager\'e bağlanılıyor, ADOM\'lar alınıyor...';
     else if (s < 60) subEl.textContent = 'Palo Alto cihazları taranıyor, vsys kuralları çekiliyor...';
-    else subEl.textContent = `${s} saniyedir tarama devam ediyor, 400+ vsys için bu normal...`;
+    else subEl.textContent = `Tarama sürüyor... (${Math.floor(s/60)} dk ${s%60} sn — 400+ vsys için normal)`;
   }, 1000);
 
-  try {
-    const res = await api('/api/scan', {method:'POST'});
-    if (res) {
-      const d = await res.json();
-      subEl.textContent = `✅ Tamamlandı — ${d.total_devices} cihaz, ${d.total_findings} bulgu`;
-      await new Promise(r => setTimeout(r, 1500));
+  // Her 4 saniyede durumu kontrol et
+  if (_scanPollInterval) clearInterval(_scanPollInterval);
+  _scanPollInterval = setInterval(async () => {
+    const hr = await api('/api/scan/history?limit=1');
+    if (!hr) return;
+    const sessions = await hr.json();
+    const latest = sessions[0];
+    if (!latest) return;
+    if (latest.status === 'completed') {
+      clearInterval(_scanPollInterval); clearInterval(tick);
+      subEl.textContent = `✅ Tamamlandı — ${latest.total_devices} cihaz, ${latest.total_findings} bulgu`;
+      await new Promise(r => setTimeout(r, 1800));
+      banner.classList.remove('show');
+      btn.disabled = false; btn.innerHTML = '▶ Tara';
+      await init();
+    } else if (latest.status === 'failed') {
+      clearInterval(_scanPollInterval); clearInterval(tick);
+      subEl.textContent = '❌ Tarama başarısız — loglara bakın';
+      await new Promise(r => setTimeout(r, 2500));
+      banner.classList.remove('show');
+      btn.disabled = false; btn.innerHTML = '▶ Tara';
     }
-    await init();
-  } finally {
-    clearInterval(tick);
-    banner.classList.remove('show');
-    btn.disabled = false; btn.innerHTML = '▶ Tara';
-  }
+  }, 4000);
 }
 
 function exportExcel() { window.location.href = API + '/api/report/excel?token=' + encodeURIComponent(token); }
