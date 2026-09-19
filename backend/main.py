@@ -4,6 +4,7 @@ Auth, DB kalıcılığı, tarama geçmişi, bulgu durum yönetimi.
 """
 
 import hashlib
+import threading
 import io
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -60,13 +61,8 @@ def make_fingerprint(platform: str, device_name: str, rule_id: str, check_name: 
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _do_scan(db: Session, triggered_by: str = "manual") -> db_models.ScanSession:
-    """Tarama çalıştırır, tüm sonuçları DB'ye kaydeder ve session döner."""
-    session = db_models.ScanSession(triggered_by=triggered_by, status="running")
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-
+def _do_scan_core(db: Session, session: db_models.ScanSession):
+    """Mevcut bir ScanSession kaydı için taramayı çalıştırır."""
     try:
         # Her fiziksel cihazı sırayla tara.
         # mock: True  → yerel mock_data kullanılır
@@ -165,6 +161,15 @@ def _do_scan(db: Session, triggered_by: str = "manual") -> db_models.ScanSession
         db.commit()
         raise exc
 
+
+def _do_scan(db: Session, triggered_by: str = "manual") -> db_models.ScanSession:
+    """ScanSession oluşturup _do_scan_core'u çağırır (scheduler/startup için)."""
+    session = db_models.ScanSession(triggered_by=triggered_by, status="running")
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    _do_scan_core(db, session)
+    db.refresh(session)
     return session
 
 
@@ -317,18 +322,43 @@ def list_connectors(_: db_models.User = Depends(get_current_user)):
 
 # ── Tarama endpoint'leri ──────────────────────────────────────────────
 
+_scan_lock = threading.Lock()
+
 @app.post("/api/scan")
 def trigger_scan(
     db: Session = Depends(get_db),
     current: db_models.User = Depends(require_admin),
 ):
-    session = _do_scan(db, triggered_by=current.username)
-    return {
-        "session_id": session.id,
-        "scanned_at": session.finished_at.isoformat(),
-        "total_devices": session.total_devices,
-        "total_findings": session.total_findings,
-    }
+    # Eş zamanlı taramayı engelle
+    running = db.query(db_models.ScanSession).filter(
+        db_models.ScanSession.status == "running"
+    ).first()
+    if running:
+        return {"session_id": running.id, "status": "running", "already_running": True}
+
+    # Session kaydını hemen oluştur, yanıtı döndür
+    session = db_models.ScanSession(triggered_by=current.username, status="running")
+    db.add(session); db.commit(); db.refresh(session)
+    session_id = session.id
+
+    # Taramayı arka plan thread'inde çalıştır (sunucu bloklanmaz)
+    def _bg():
+        bg_db = SessionLocal()
+        try:
+            bg_session = bg_db.query(db_models.ScanSession).filter(
+                db_models.ScanSession.id == session_id
+            ).first()
+            _do_scan_core(bg_db, bg_session)
+        except Exception as e:
+            import logging as _l
+            _l.getLogger(__name__).error(f"Arka plan tarama hatası: {e}", exc_info=True)
+        finally:
+            bg_db.close()
+
+    t = threading.Thread(target=_bg, daemon=True)
+    t.start()
+
+    return {"session_id": session_id, "status": "running"}
 
 
 @app.get("/api/scan/history")
