@@ -240,6 +240,12 @@ class UserCreate(BaseModel):
     role: str = "readonly"
 
 
+class UserEdit(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+
+
 class ScanRequest(BaseModel):
     device_ids: Optional[list[str]] = None   # None = tüm cihazlar
 
@@ -315,6 +321,45 @@ def toggle_user(
     user.is_active = not user.is_active
     db.commit()
     return {"id": user.id, "is_active": user.is_active}
+
+
+@app.put("/api/auth/users/{user_id}")
+def edit_user(
+    user_id: int,
+    body: UserEdit,
+    db: Session = Depends(get_db),
+    current: db_models.User = Depends(require_admin),
+):
+    user = db.query(db_models.User).filter(db_models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "Kullanıcı bulunamadı.")
+    if body.role and body.role not in ("admin", "readonly"):
+        raise HTTPException(400, "Rol 'admin' veya 'readonly' olmalıdır.")
+    if body.full_name is not None:
+        user.full_name = body.full_name
+    if body.role is not None:
+        user.role = body.role
+    if body.password:
+        from .auth import hash_password as _hp
+        user.password_hash = _hp(body.password)
+    db.commit()
+    return {"id": user.id, "username": user.username, "full_name": user.full_name,
+            "role": user.role, "is_active": user.is_active}
+
+
+@app.delete("/api/auth/users/{user_id}", status_code=204)
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current: db_models.User = Depends(require_admin),
+):
+    user = db.query(db_models.User).filter(db_models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "Kullanıcı bulunamadı.")
+    if user.id == current.id:
+        raise HTTPException(400, "Kendi hesabınızı silemezsiniz.")
+    db.delete(user)
+    db.commit()
 
 
 # ── Cihaz kayıt defteri ───────────────────────────────────────────────
