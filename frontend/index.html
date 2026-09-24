@@ -564,7 +564,7 @@ async function loadSummary() {
   document.getElementById('statLow').textContent      = d.findings_by_severity?.low ?? 0;
   if (d.last_scan) {
     const dt = new Date(d.last_scan);
-    document.getElementById('lastScan').textContent = `Son tarama: ${dt.toLocaleString('tr-TR')}`;
+    document.getElementById('lastScan').textContent = `Son tarama: ${dt.toLocaleString('tr-TR', {timeZone: 'Europe/Istanbul'})}`;
   }
 }
 
