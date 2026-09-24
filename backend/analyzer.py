@@ -347,7 +347,7 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 "İnternet kaynaklı her türlü protokol ve port hedef sistemlere erişebilir; "
                 "saldırı yüzeyini kritik düzeyde genişletmektedir.",
                 "Untrust zone için servis alanını yalnızca zorunlu portlarla (örn. HTTP/443, SMTP/25) "
-                "sınırlandırın. Genel "any" servis kuralı yerine spesifik uygulama veya port grupları tanımlayın.",
+                "sınırlandırın. Genel any servis kuralı yerine spesifik uygulama veya port grupları tanımlayın.",
                 details,
             ))
 
