@@ -94,7 +94,7 @@ header{
 .stat-card.active{background:rgba(79,142,247,.07)}
 .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
 .stat-value{font-size:24px;font-weight:700;line-height:1}
-.stat-value.critical{color:var(--critical)}.stat-value.high{color:var(--high)}
+.stat-value.acil{color:#cc00cc}.stat-value.critical{color:var(--critical)}.stat-value.high{color:var(--high)}
 .stat-value.medium{color:var(--medium)}.stat-value.low{color:var(--low)}
 
 /* Layout */
@@ -118,7 +118,7 @@ aside{
 .dev-host{font-size:10px;color:var(--accent);font-family:monospace;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .badges{display:flex;gap:3px;flex-shrink:0}
 .badge{padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700}
-.badge.critical{background:rgba(231,76,60,.2);color:var(--critical)}
+.badge.acil{background:rgba(204,0,204,.2);color:#cc00cc}.badge.critical{background:rgba(231,76,60,.2);color:var(--critical)}
 .badge.high{background:rgba(230,126,34,.2);color:var(--high)}
 .badge.medium{background:rgba(241,196,15,.2);color:var(--medium)}
 .badge.low{background:rgba(39,174,96,.2);color:var(--low)}
@@ -139,7 +139,7 @@ th{text-align:left;padding:9px 11px;font-size:10px;font-weight:700;color:var(--m
 .finding-row:hover{background:var(--surface2)}
 td{padding:9px 11px;vertical-align:middle}
 .sev-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
-.sev-pill.critical{background:rgba(231,76,60,.15);color:var(--critical);border:1px solid rgba(231,76,60,.3)}
+.sev-pill.acil{background:rgba(204,0,204,.15);color:#cc00cc;border:1px solid rgba(204,0,204,.3)}.sev-pill.critical{background:rgba(231,76,60,.15);color:var(--critical);border:1px solid rgba(231,76,60,.3)}
 .sev-pill.high{background:rgba(230,126,34,.15);color:var(--high);border:1px solid rgba(230,126,34,.3)}
 .sev-pill.medium{background:rgba(241,196,15,.15);color:var(--medium);border:1px solid rgba(241,196,15,.3)}
 .sev-pill.low{background:rgba(39,174,96,.15);color:var(--low);border:1px solid rgba(39,174,96,.3)}
@@ -302,6 +302,9 @@ td{padding:9px 11px;vertical-align:middle}
     <div class="stat-card" onclick="filterBySev('all')">
       <div class="stat-label">Toplam Bulgu</div><div class="stat-value" id="statTotal">—</div>
     </div>
+    <div class="stat-card" onclick="filterBySev('acil')">
+      <div class="stat-label">🚨 Acil</div><div class="stat-value" style="color:#cc00cc" id="statAcil">—</div>
+    </div>
     <div class="stat-card" onclick="filterBySev('critical')">
       <div class="stat-label">🔴 Kritik</div><div class="stat-value critical" id="statCritical">—</div>
     </div>
@@ -327,6 +330,7 @@ td{padding:9px 11px;vertical-align:middle}
         <input class="search-box" id="searchBox" type="text" placeholder="🔍  Kural adı, müşteri, zafiyet ara..." oninput="applyFilters()"/>
         <select class="fsel" id="sevFilter" onchange="applyFilters()">
           <option value="all">Tüm Önem</option>
+          <option value="acil">🚨 Acil</option>
           <option value="critical">🔴 Kritik</option>
           <option value="high">🟠 Yüksek</option>
           <option value="medium">🟡 Orta</option>
@@ -343,6 +347,9 @@ td{padding:9px 11px;vertical-align:middle}
           <option value="acknowledged">Onaylandı</option>
           <option value="in_progress">İşlemde</option>
           <option value="resolved">Çözüldü</option>
+        </select>
+        <select class="fsel" id="checkFilter" onchange="applyFilters()">
+          <option value="all">Tüm Zafiyet</option>
         </select>
         <span class="fcount" id="findingCount">— bulgu</span>
       </div>
@@ -442,8 +449,8 @@ let activeDevice = 'all';
 let currentFinding = null;
 let currentStatus = 'open';
 
-const SEV_ICONS   = {critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
-const SEV_LABELS  = {critical:'Kritik',high:'Yüksek',medium:'Orta',low:'Düşük'};
+const SEV_ICONS   = {acil:'🚨',critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
+const SEV_LABELS  = {acil:'Acil',critical:'Kritik',high:'Yüksek',medium:'Orta',low:'Düşük'};
 const STAT_LABELS = {open:'Açık',acknowledged:'Onaylandı',in_progress:'İşlemde',resolved:'Çözüldü'};
 const STAT_ICONS  = {open:'⚪',acknowledged:'🔵',in_progress:'🟡',resolved:'✅'};
 
@@ -532,6 +539,7 @@ async function init() {
   try {
     await Promise.all([loadSummary(), loadDevices()]);
     await loadFindings();
+    await populateCheckFilter();
   } catch(err) {
     console.error('init hatası:', err);
     document.getElementById('deviceList').innerHTML =
@@ -547,6 +555,7 @@ async function loadSummary() {
   if (!res) return;
   const d = await res.json();
   document.getElementById('statTotal').textContent    = d.total_findings;
+  document.getElementById('statAcil').textContent     = d.findings_by_severity?.acil ?? 0;
   document.getElementById('statCritical').textContent = d.findings_by_severity?.critical ?? 0;
   document.getElementById('statHigh').textContent     = d.findings_by_severity?.high ?? 0;
   document.getElementById('statMedium').textContent   = d.findings_by_severity?.medium ?? 0;
@@ -569,19 +578,35 @@ async function loadDevices() {
   renderDevices(devices);
 }
 
-async function loadFindings(deviceId='all', severity='all', platform='all', fstatus='all', search='') {
+async function loadFindings(deviceId='all', severity='all', platform='all', fstatus='all', search='', checkName='all') {
   let url = '/api/findings?limit=500';
   if (deviceId && deviceId !== 'all')  url += `&device_id=${encodeURIComponent(deviceId)}`;
   if (severity && severity !== 'all')  url += `&severity=${severity}`;
   if (platform && platform !== 'all')  url += `&platform=${platform}`;
   if (fstatus  && fstatus  !== 'all')  url += `&status=${fstatus}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (checkName && checkName !== 'all') url += `&check_name=${encodeURIComponent(checkName)}`;
   const res = await api(url);
   if (!res) return;
   const data = await res.json();
   allFindings = Array.isArray(data.findings) ? data.findings : [];
   renderFindings(allFindings);
   document.getElementById('findingCount').textContent = `${data.total ?? 0} bulgu`;
+}
+
+async function populateCheckFilter() {
+  const res = await api('/api/findings/check-names');
+  if (!res) return;
+  const names = await res.json();
+  const sel = document.getElementById('checkFilter');
+  // Keep "Tüm Zafiyet" option, add the rest
+  sel.innerHTML = '<option value="all">Tüm Zafiyet</option>';
+  names.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = n;
+    sel.appendChild(opt);
+  });
 }
 
 let _scanPollInterval = null;
@@ -861,6 +886,7 @@ async function saveStatus() {
     document.getElementById('platFilter').value,
     document.getElementById('stFilter').value,
     document.getElementById('searchBox').value,
+    document.getElementById('checkFilter').value,
   );
 }
 
@@ -912,7 +938,7 @@ function selectDevice(id, el) {
 
 function filterBySev(sev) {
   document.getElementById('sevFilter').value = sev;
-  document.querySelectorAll('.stat-card').forEach((c,i)=>c.classList.toggle('active', ['all','critical','high','medium','low'][i]===sev));
+  document.querySelectorAll('.stat-card').forEach((c,i)=>c.classList.toggle('active', ['all','acil','critical','high','medium','low'][i]===sev));
   applyFilters();
 }
 
@@ -923,6 +949,7 @@ function applyFilters() {
     document.getElementById('platFilter').value,
     document.getElementById('stFilter').value,
     document.getElementById('searchBox').value.trim(),
+    document.getElementById('checkFilter').value,
   );
 }
 

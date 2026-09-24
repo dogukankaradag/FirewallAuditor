@@ -10,6 +10,7 @@ class Platform(str, Enum):
 
 
 class Severity(str, Enum):
+    ACIL = "acil"
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"

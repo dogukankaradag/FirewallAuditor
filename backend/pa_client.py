@@ -160,11 +160,14 @@ class PaloAltoClient:
 
         for entry in entries:
             vsys_name = entry.get("name", "vsys?")
+            display_name_el = entry.find("display-name")
+            display_name = display_name_el.text.strip() if display_name_el is not None and display_name_el.text else ""
+            customer_label = f"{display_name} ({vsys_name})" if display_name else vsys_name
             rules = self._parse_security_rules(entry)
-            log.info(f"  vsys '{vsys_name}': {len(rules)} kural")
+            log.info(f"  vsys '{vsys_name}' ({display_name}): {len(rules)} kural")
             vsys_list.append({
                 "name":     vsys_name,
-                "customer": vsys_name,
+                "customer": customer_label,
                 "rules":    rules,
             })
 
