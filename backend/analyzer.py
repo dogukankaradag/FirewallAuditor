@@ -334,6 +334,23 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
             "Açıklama": description or "(yok)",
         }
 
+        # 0. ACİL: Untrust zone kaynaklı + servis=any
+        untrust_zones = {"untrust", "outside", "wan", "internet", "external", "l3-untrust", "zone_untrust"}
+        zone_is_untrust = any(z.lower() in untrust_zones for z in from_zones)
+        pa_svc_any_acil = any(s.lower() == "any" for s in services)
+        if action == "allow" and zone_is_untrust and pa_svc_any_acil:
+            findings.append(_finding(
+                Platform.PALOALTO, device_name, customer, rname, rname,
+                Severity.ACIL,
+                "source zone: Any Kuralı",
+                "Dış zone (Untrust) kaynaklı tüm servislere izin veriliyor. "
+                "İnternet kaynaklı her türlü protokol ve port hedef sistemlere erişebilir; "
+                "saldırı yüzeyini kritik düzeyde genişletmektedir.",
+                "Untrust zone için servis alanını yalnızca zorunlu portlarla (örn. HTTP/443, SMTP/25) "
+                "sınırlandırın. Genel "any" servis kuralı yerine spesifik uygulama veya port grupları tanımlayın.",
+                details,
+            ))
+
         # 1. Any-Any-Any: CRITICAL
         if (action == "allow"
                 and _pa_is_any(sources)

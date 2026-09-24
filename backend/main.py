@@ -48,8 +48,9 @@ from .scheduler import (
 # ── Yardımcılar ───────────────────────────────────────────────────────
 
 analyzer = FirewallAnalyzer()
-SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+SEV_ORDER = {"acil": 0, "critical": 1, "high": 2, "medium": 3, "low": 4}
 EXCEL_COLORS = {
+    "acil":     "CC00CC",
     "critical": "C0392B", "high": "E67E22",
     "medium":   "F1C40F", "low":  "27AE60",
     "header":   "2C3E50", "sub":  "34495E",
@@ -460,7 +461,7 @@ def get_summary(
         .all()
     )
 
-    sev_counts  = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    sev_counts  = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
     plat_counts = {"fortimanager": 0, "paloalto": 0}
     device_map: dict = {}
 
@@ -506,7 +507,7 @@ def get_devices(
 
     devices = []
     for r in results:
-        counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        counts = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
         for f in r.findings:
             counts[f.severity] += 1
         devices.append({
@@ -528,13 +529,34 @@ def get_devices(
 
 # ── Bulgular ──────────────────────────────────────────────────────────
 
+@app.get("/api/findings/check-names")
+def get_check_names(
+    db: Session = Depends(get_db),
+    _: db_models.User = Depends(get_current_user),
+):
+    """Son taramadaki tüm benzersiz check_name değerlerini döndürür."""
+    sess = _latest_session(db)
+    if not sess:
+        return []
+    rows = (
+        db.query(db_models.FindingRecord.check_name)
+        .join(db_models.ScanResult)
+        .filter(db_models.ScanResult.session_id == sess.id)
+        .distinct()
+        .order_by(db_models.FindingRecord.check_name)
+        .all()
+    )
+    return [r[0] for r in rows if r[0]]
+
+
 @app.get("/api/findings")
 def get_findings(
     device_id: Optional[str] = Query(None),
     severity:  Optional[str] = Query(None),
     platform:  Optional[str] = Query(None),
-    fstatus:   Optional[str] = Query(None, alias="status"),
-    search:    Optional[str] = Query(None),
+    fstatus:    Optional[str] = Query(None, alias="status"),
+    check_name: Optional[str] = Query(None),
+    search:     Optional[str] = Query(None),
     page:      int           = Query(1, ge=1),
     limit:     int           = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -556,6 +578,8 @@ def get_findings(
         q = q.filter(db_models.FindingRecord.severity == severity)
     if platform and platform != "all":
         q = q.filter(db_models.FindingRecord.platform == platform)
+    if check_name and check_name != "all":
+        q = q.filter(db_models.FindingRecord.check_name == check_name)
     if search:
         s = f"%{search.lower()}%"
         q = q.filter(
@@ -729,7 +753,7 @@ def download_excel(
     ws["A2"].font = Font(italic=True, color="888888")
     ws.merge_cells("A2:B2")
 
-    sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    sev_counts = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
     for f in findings_q:
         sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
 
@@ -768,7 +792,7 @@ def download_excel(
             c.border = bdr; c.alignment = Alignment(wrap_text=True, vertical="top")
             if col == 2:
                 c.fill = fill(EXCEL_COLORS.get(f.severity, "FFFFFF"))
-                c.font = Font(bold=True, color="FFFFFF" if f.severity in ("critical","high") else "000000")
+                c.font = Font(bold=True, color="FFFFFF" if f.severity in ("acil","critical","high") else "000000")
         ws2.row_dimensions[ri].height = 40
 
     # ── Cihaz bazlı sayfalar ──────────────────────────────────────────
@@ -795,7 +819,7 @@ def download_excel(
                 c.border=bdr; c.alignment=Alignment(wrap_text=True,vertical="top")
                 if col==1:
                     c.fill=fill(EXCEL_COLORS.get(f.severity,"FFFFFF"))
-                    c.font=Font(bold=True, color="FFFFFF" if f.severity in ("critical","high") else "000000")
+                    c.font=Font(bold=True, color="FFFFFF" if f.severity in ("acil","critical","high") else "000000")
             ws3.row_dimensions[ri].height=45
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
