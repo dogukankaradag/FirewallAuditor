@@ -83,17 +83,19 @@ header{
 
 /* Stats bar */
 .stats-bar{
-  display:grid;grid-template-columns:repeat(5,1fr);gap:10px;
-  padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
+  display:grid;grid-template-columns:repeat(6,1fr);gap:8px;
+  padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
 }
 .stat-card{
-  background:var(--surface2);border-radius:var(--radius);padding:10px 14px;
+  background:var(--surface2);border-radius:var(--radius);padding:8px 12px;
   border:1px solid var(--border);cursor:pointer;transition:border-color .15s;
 }
 .stat-card:hover,.stat-card.active{border-color:var(--accent)}
+@media(max-width:900px){.stats-bar{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:560px){.stats-bar{grid-template-columns:repeat(2,1fr)}}
 .stat-card.active{background:rgba(79,142,247,.07)}
 .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
-.stat-value{font-size:24px;font-weight:700;line-height:1}
+.stat-value{font-size:22px;font-weight:700;line-height:1}
 .stat-value.acil{color:#cc00cc}.stat-value.critical{color:var(--critical)}.stat-value.high{color:var(--high)}
 .stat-value.medium{color:var(--medium)}.stat-value.low{color:var(--low)}
 
