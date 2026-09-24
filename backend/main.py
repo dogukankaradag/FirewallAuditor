@@ -472,7 +472,7 @@ def get_summary(
         if key not in device_map:
             device_map[key] = {"device": key, "customer": f.customer,
                                "platform": f.platform, "total": 0,
-                               "critical": 0, "high": 0, "medium": 0, "low": 0}
+                               "acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
         device_map[key]["total"] += 1
         device_map[key][f.severity] += 1
 
@@ -485,7 +485,7 @@ def get_summary(
         "findings_by_severity": sev_counts,
         "findings_by_platform": plat_counts,
         "top_risk_devices":     top[:6],
-        "last_scan":            sess.finished_at.isoformat() if sess.finished_at else None,
+        "last_scan":            (sess.finished_at.isoformat() + "Z") if sess.finished_at else None,
         "session_id":           sess.id,
     }
 
