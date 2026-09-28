@@ -9,6 +9,7 @@ Response yapısı:
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import requests
@@ -17,6 +18,11 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = logging.getLogger(__name__)
+
+# Paralel ADOM tarama için maksimum iş parçacığı sayısı
+_MAX_WORKERS = 10
+# Her HTTP isteği için zaman aşımı (saniye)
+_REQUEST_TIMEOUT = 30
 
 
 class FortiManagerClient:
@@ -36,7 +42,7 @@ class FortiManagerClient:
             self.base_url,
             json=payload,
             verify=False,
-            timeout=60,
+            timeout=_REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
         return resp.json()
@@ -51,6 +57,7 @@ class FortiManagerClient:
           - None   → None   (veri yoksa)
 
         Hata kodu != 0 ise RuntimeError fırlatır.
+        KRITIK: `or {}` KULLANMA — boş listeyi dict'e dönüştürür.
         """
         payload = {
             "id":      1,
@@ -63,8 +70,8 @@ class FortiManagerClient:
         results = body.get("result", [])
         result  = results[0] if isinstance(results, list) and results else {}
 
-        status  = result.get("status", {})
-        code    = status.get("code", 0)
+        status = result.get("status", {})
+        code   = status.get("code", 0)
         if code != 0:
             raise RuntimeError(
                 f"FortiManager RPC hatası — method={method} "
@@ -72,9 +79,7 @@ class FortiManagerClient:
                 f"code={code} msg={status.get('message', '')}"
             )
 
-        # KRITIK: data None / [] / {} hepsini olduğu gibi döndür
-        # "or {}" kullanma — boş listeyi {}'ye dönüştürür!
-        return result.get("data")
+        return result.get("data")   # None / list / dict — olduğu gibi döner
 
     def _as_list(self, data: Any) -> list:
         """_rpc'den gelen veriyi güvenle listeye çevirir."""
@@ -90,8 +95,8 @@ class FortiManagerClient:
 
     def login(self) -> None:
         """
-        FortiManager'a bağlanır; session token'ı kök response'tan alır.
-        result[0].data değil, response.session alanı kullanılır.
+        FortiManager'a bağlanır.
+        Session token kök response'taki 'session' alanından alınır.
         """
         body = self._post({
             "id":     1,
@@ -99,13 +104,10 @@ class FortiManagerClient:
             "params": [{"url": "/sys/login/user",
                         "data": {"user": self.username, "passwd": self.password}}],
         })
-
-        # Oturum token'ı kök response'ta
         self.session_id = body.get("session")
         if not self.session_id:
             raise RuntimeError("FortiManager login başarısız: session token alınamadı")
-
-        log.info("FortiManager login başarılı (session=%s…)", self.session_id[:8])
+        log.info("FortiManager login başarılı")
 
     def logout(self) -> None:
         try:
@@ -113,7 +115,6 @@ class FortiManagerClient:
         except Exception:
             pass
         self.session_id = None
-        log.info("FortiManager logout")
 
     # ──────────────────────────────────────────────────────────────────────
     #  ADOM katmanı
@@ -124,7 +125,7 @@ class FortiManagerClient:
         GET /dvmdb/adom → result[0].data[].name
 
         FortiAnalyzer yönetim ADOM'u hariç tüm ADOM isimleri döner.
-        "root" dahil.
+        'root' dahil.
         """
         data  = self._rpc("get", [{"url": "/dvmdb/adom"}])
         items = self._as_list(data)
@@ -138,7 +139,7 @@ class FortiManagerClient:
             and item["name"].lower() not in skip
         ]
 
-        log.info("get_adoms → %d ADOM: %s", len(adoms), adoms)
+        log.info("get_adoms → %d ADOM bulundu", len(adoms))
         return adoms
 
     # ──────────────────────────────────────────────────────────────────────
@@ -154,8 +155,7 @@ class FortiManagerClient:
         data  = self._rpc("get", [{"url": f"/pm/pkg/adom/{adom}"}])
         items = self._as_list(data)
         pkgs  = self._collect_packages(items)
-
-        log.info("get_policy_packages(%s) → %d paket: %s", adom, len(pkgs), pkgs)
+        log.debug("get_policy_packages(%s) → %d paket", adom, len(pkgs))
         return pkgs
 
     def _collect_packages(self, items: list) -> list[str]:
@@ -183,8 +183,6 @@ class FortiManagerClient:
         """
         GET /pm/config/adom/{adom}/pkg/{package}/firewall/policy
         → result[0].data[]
-
-        Ham kuralları normalize edilmiş dict listesine dönüştürür.
         """
         data = self._rpc(
             "get",
@@ -192,15 +190,12 @@ class FortiManagerClient:
               "option": ["get reserved"]}],
         )
         raw = self._as_list(data)
-        policies = [self._normalize_policy(p) for p in raw if isinstance(p, dict)]
-
-        log.info("get_policies(%s, %s) → %d kural", adom, package, len(policies))
-        return policies
+        return [self._normalize_policy(p) for p in raw if isinstance(p, dict)]
 
     @staticmethod
     def _normalize_policy(pol: dict) -> dict:
         """
-        FortiManager API çıktısını analyzer.py'nin beklediği formata çevirir.
+        FM API çıktısını analyzer.py'nin beklediği formata dönüştürür.
 
         FM API integer döndürebilir:
           action:     1=accept  0/6=deny
@@ -208,33 +203,24 @@ class FortiManagerClient:
           status:     0=disable 1=enable
         Adres/servis alanları [{"name": "all"}] formatında gelir → ["all"]
         """
-
         def extract_names(field: Any, fallback: str = "any") -> list[str]:
             if isinstance(field, list):
-                names = []
-                for item in field:
-                    names.append(item["name"] if isinstance(item, dict) else str(item))
+                names = [item["name"] if isinstance(item, dict) else str(item) for item in field]
                 return names or [fallback]
             if isinstance(field, str):
                 return [field]
             return [fallback]
 
-        # action
         action_raw = pol.get("action", "deny")
-        if isinstance(action_raw, int):
-            action = "accept" if action_raw == 1 else "deny"
-        else:
-            action = str(action_raw).lower()
+        action = "accept" if (isinstance(action_raw, int) and action_raw == 1) \
+            else ("accept" if str(action_raw).lower() == "accept" else "deny")
 
-        # logtraffic
         log_raw = pol.get("logtraffic", "disable")
         if isinstance(log_raw, int):
-            log_map = {0: "disable", 1: "enable", 2: "all", 3: "utm"}
-            logtraffic = log_map.get(log_raw, "disable")
+            logtraffic = {0: "disable", 1: "enable", 2: "all", 3: "utm"}.get(log_raw, "disable")
         else:
             logtraffic = str(log_raw).lower()
 
-        # status
         status_raw = pol.get("status", "enable")
         if isinstance(status_raw, int):
             status = "enable" if status_raw == 1 else "disable"
@@ -246,7 +232,7 @@ class FortiManagerClient:
             "name":       pol.get("name") or f"policy-{pol.get('policyid', '?')}",
             "srcaddr":    extract_names(pol.get("srcaddr"), fallback="all"),
             "dstaddr":    extract_names(pol.get("dstaddr"), fallback="all"),
-            "service":    extract_names(pol.get("service"), fallback="ALL"),
+            "service":    extract_names(pol.get("service"),  fallback="ALL"),
             "action":     action,
             "logtraffic": logtraffic,
             "status":     status,
@@ -254,41 +240,67 @@ class FortiManagerClient:
         }
 
     # ──────────────────────────────────────────────────────────────────────
+    #  ADOM bazlı paralel tarama
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _fetch_adom_policies(self, adom_name: str) -> tuple[str, list[dict]]:
+        """
+        Tek bir ADOM'un tüm policy paketlerini çeker.
+        ThreadPoolExecutor worker'ı olarak çalışır.
+        Döner: (adom_name, policies_list)
+        """
+        policies: list[dict] = []
+        try:
+            packages = self.get_policy_packages(adom_name)
+            for pkg in packages:
+                try:
+                    pols = self.get_policies(adom_name, pkg)
+                    policies.extend(pols)
+                    log.debug("  %s / %s → %d kural", adom_name, pkg, len(pols))
+                except Exception as exc:
+                    log.warning("  Paket atlandı %s/%s: %s", adom_name, pkg, exc)
+        except Exception as exc:
+            log.warning("  ADOM atlandı %s: %s", adom_name, exc)
+        return adom_name, policies
+
+    # ──────────────────────────────────────────────────────────────────────
     #  Ana çekme metodu
     # ──────────────────────────────────────────────────────────────────────
 
     def fetch_all(self) -> dict:
         """
-        Tüm ADOM'ların tüm policy paketlerindeki kuralları çeker.
+        Tüm ADOM'ların policy'lerini PARALEL olarak çeker.
+
+        _MAX_WORKERS iş parçacığı aynı anda çalışır; 100+ ADOM için
+        sıralı çekmeye kıyasla ~10x hızlanma sağlar.
 
         Dönen format (analyzer.py ile uyumlu):
           {"adoms": [{"name": str, "customer": str, "policies": [...]}, ...]}
         """
         self.login()
         try:
-            adoms        = self.get_adoms()
-            result_adoms = []
+            adoms = self.get_adoms()
+            log.info("Paralel tarama başlıyor: %d ADOM, %d worker", len(adoms), _MAX_WORKERS)
 
-            for adom_name in adoms:
-                policies: list[dict] = []
-                try:
-                    packages = self.get_policy_packages(adom_name)
-                    for pkg in packages:
-                        try:
-                            pols = self.get_policies(adom_name, pkg)
-                            policies.extend(pols)
-                        except Exception as exc:
-                            log.warning("Paket '%s/%s' atlandı: %s", adom_name, pkg, exc)
-                except Exception as exc:
-                    log.warning("ADOM '%s' paket listesi alınamadı: %s", adom_name, exc)
+            # adom_name → policies sözlüğü (sırayı korumak için)
+            results: dict[str, list[dict]] = {}
 
-                result_adoms.append({
-                    "name":     adom_name,
-                    "customer": adom_name,
-                    "policies": policies,
-                })
-                log.info("ADOM '%s' → %d kural toplandı", adom_name, len(policies))
+            with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+                futures = {
+                    pool.submit(self._fetch_adom_policies, adom_name): adom_name
+                    for adom_name in adoms
+                }
+                for future in as_completed(futures):
+                    adom_name, policies = future.result()
+                    results[adom_name] = policies
+                    log.info("ADOM '%s' tamamlandı → %d kural", adom_name, len(policies))
 
-            return {"adoms": result_adoms}
+            # Orijinal ADOM sırasını koru
+            return {
+                "adoms": [
+                    {"name": name, "customer": name, "policies": results.get(name, [])}
+                    for name in adoms
+                ]
+            }
         finally:
             self.logout()
