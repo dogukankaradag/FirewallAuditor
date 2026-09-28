@@ -4,6 +4,7 @@ Auth, DB kalıcılığı, tarama geçmişi, bulgu durum yönetimi.
 """
 
 import hashlib
+import json
 import threading
 import io
 from contextlib import asynccontextmanager
@@ -45,6 +46,9 @@ from .scheduler import (
     shutdown_scheduler,
 )
 
+import logging
+log = logging.getLogger(__name__)
+
 # ── Yardımcılar ───────────────────────────────────────────────────────
 
 analyzer = FirewallAnalyzer()
@@ -65,14 +69,14 @@ def make_fingerprint(platform: str, device_name: str, rule_id: str, check_name: 
 def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optional[list[str]] = None):
     """Mevcut bir ScanSession kaydı için taramayı çalıştırır."""
     try:
-        # Her fiziksel cihazı sırayla tara.
-        # mock: True  → yerel mock_data kullanılır
-        # mock: False → gerçek cihaz API'sına bağlanılır
         all_results = []
-        # Belirli cihazlar seçildiyse yalnızca onları tara
         devices_to_scan = FIREWALL_DEVICES if not device_ids else [d for d in FIREWALL_DEVICES if d["id"] in device_ids]
         fm_devices = [d for d in devices_to_scan if d["type"] == "fortimanager"]
         pa_devices  = [d for d in devices_to_scan if d["type"] == "paloalto"]
+
+        # Ham cihaz verileri — security profilleri kaydetmek için saklıyoruz
+        raw_fm_data: list[tuple[dict, dict]] = []   # (dev, fm_data)
+        raw_pa_data: list[tuple[dict, dict]] = []   # (dev, pa_data)
 
         for dev in fm_devices:
             label = dev.get("label", dev["id"])
@@ -85,13 +89,11 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
                         username=dev["username"], password=dev["password"],
                     )
                     fm_data = client.fetch_all()
+                raw_fm_data.append((dev, fm_data))
                 res = analyzer.scan_device(dev, fm_data=fm_data)
                 all_results.extend(res)
             except Exception as e:
-                import logging as _log
-                _log.getLogger(__name__).error(
-                    f"FortiManager cihazı '{label}' taranamadı: {e}", exc_info=True
-                )
+                log.error(f"FortiManager cihazı '{label}' taranamadı: {e}", exc_info=True)
 
         for dev in pa_devices:
             label = dev.get("label", dev["id"])
@@ -104,13 +106,11 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
                         username=dev["username"], password=dev["password"],
                     )
                     pa_data = client.fetch_all()
+                raw_pa_data.append((dev, pa_data))
                 res = analyzer.scan_device(dev, pa_data=pa_data)
                 all_results.extend(res)
             except Exception as e:
-                import logging as _log
-                _log.getLogger(__name__).error(
-                    f"Palo Alto cihazı '{label}' taranamadı: {e}", exc_info=True
-                )
+                log.error(f"Palo Alto cihazı '{label}' taranamadı: {e}", exc_info=True)
 
         results = all_results
         total_rules = total_findings = 0
@@ -147,8 +147,26 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
                 )
                 db.add(rec)
 
+                # Çözüldü değişiklik tespiti: daha önce resolved olarak işaretlenmiş bulgu
+                # yeni taramada hâlâ çıkıyorsa kural değişip değişmediğini kontrol et
+                st = db.query(db_models.FindingStatus).filter(
+                    db_models.FindingStatus.fingerprint == fp
+                ).first()
+                if st and st.status == "resolved" and st.rule_snapshot:
+                    try:
+                        old_snapshot = st.rule_snapshot if isinstance(st.rule_snapshot, dict) else json.loads(st.rule_snapshot)
+                        new_details  = f.rule_details if isinstance(f.rule_details, dict) else {}
+                        if old_snapshot != new_details and not st.is_rule_changed:
+                            st.is_rule_changed = True
+                            st.rule_changed_at = datetime.utcnow()
+                    except Exception:
+                        pass
+
             total_rules    += r.total_rules
             total_findings += len(r.findings)
+
+        # Security profile kayıtları — tüm kurallar için (sadece findings değil)
+        _save_security_profiles(db, session, raw_fm_data, raw_pa_data)
 
         session.finished_at    = datetime.utcnow()
         session.status         = "completed"
@@ -163,6 +181,60 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
         session.finished_at = datetime.utcnow()
         db.commit()
         raise exc
+
+
+def _save_security_profiles(
+    db: Session,
+    session: db_models.ScanSession,
+    raw_fm_data: list,
+    raw_pa_data: list,
+):
+    """Her cihazın tüm kuralları için SecurityProfileRecord kayıtları oluşturur."""
+    for dev, fm_data in raw_fm_data:
+        label = dev.get("label", dev["id"])
+        for adom in fm_data.get("adoms", []):
+            device_name = adom["name"]
+            customer    = adom["customer"]
+            for pol in adom.get("policies", []):
+                sec = pol.get("security_profiles", {})
+                db.add(db_models.SecurityProfileRecord(
+                    session_id     = session.id,
+                    device_name    = device_name,
+                    customer       = customer,
+                    platform       = "fortimanager",
+                    rule_id        = str(pol.get("policyid", "")),
+                    rule_name      = pol.get("name", ""),
+                    has_av         = bool(sec.get("av", "")),
+                    has_webfilter  = bool(sec.get("webfilter", "")),
+                    has_filefilter = bool(sec.get("filefilter", "")),
+                    has_ips        = bool(sec.get("ips", "")),
+                    profile_names  = sec,
+                ))
+
+    for dev, pa_data in raw_pa_data:
+        for vsys in pa_data.get("vsys_list", []):
+            device_name = vsys["name"]
+            customer    = vsys["customer"]
+            for rule in vsys.get("rules", []):
+                sec  = rule.get("security_profiles", {})
+                grp  = str(sec.get("group", "") or "")
+                # Grup profili varsa tüm profiller var sayılır (en yaygın PA yapılandırması)
+                has_all_via_group = bool(grp)
+                db.add(db_models.SecurityProfileRecord(
+                    session_id     = session.id,
+                    device_name    = device_name,
+                    customer       = customer,
+                    platform       = "paloalto",
+                    rule_id        = rule.get("name", ""),
+                    rule_name      = rule.get("name", ""),
+                    has_av         = has_all_via_group or bool(sec.get("av", "")),
+                    has_webfilter  = has_all_via_group or bool(sec.get("webfilter", "")),
+                    has_filefilter = has_all_via_group or bool(sec.get("filefilter", "")),
+                    has_ips        = has_all_via_group or bool(sec.get("ips", "")),
+                    profile_names  = sec,
+                ))
+
+    db.flush()
 
 
 def _do_scan(db: Session, triggered_by: str = "manual") -> db_models.ScanSession:
@@ -209,9 +281,19 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         ensure_default_users(db)
-        # İlk kez çalışıyorsa otomatik tarama yap
+        # İlk kez çalışıyorsa otomatik taramayı ARKA PLANDA başlat
+        # (sunucunun istekleri kabul etmesi engellenmez)
         if not _latest_session(db):
-            _do_scan(db, triggered_by="startup")
+            def _startup_scan():
+                bg_db = SessionLocal()
+                try:
+                    _do_scan(bg_db, triggered_by="startup")
+                except Exception as e:
+                    log.error(f"Startup tarama hatası: {e}", exc_info=True)
+                finally:
+                    bg_db.close()
+            t = threading.Thread(target=_startup_scan, daemon=True)
+            t.start()
     finally:
         db.close()
     setup_scheduler(_scheduled_scan)
@@ -373,15 +455,9 @@ def list_connectors(_: db_models.User = Depends(get_current_user)):
 
 
 # ── FortiManager Diagnostik endpoint'leri ────────────────────────────
-# Adım adım FM bağlantısını doğrulamak için kullanılır.
-# Yalnızca admin erişimi gerektirir.
 
 @app.get("/api/fm/adoms")
 def fm_list_adoms(_: db_models.User = Depends(require_admin)):
-    """
-    Adım 1 — FortiManager'dan yalnızca ADOM isimlerini çeker.
-    Bağlantı, kimlik doğrulama ve ADOM erişimi doğrulanır.
-    """
     fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager" and not d.get("mock", True)]
     if not fm_devices:
         raise HTTPException(status_code=404, detail="mock=False ayarlı FortiManager cihazı bulunamadı.")
@@ -417,10 +493,6 @@ def fm_list_adoms(_: db_models.User = Depends(require_admin)):
 
 @app.get("/api/fm/packages")
 def fm_list_packages(_: db_models.User = Depends(require_admin)):
-    """
-    Adım 2 — Her ADOM'daki policy paket isimlerini listeler.
-    ADOM erişimi ve paket yapısı doğrulanır.
-    """
     fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager" and not d.get("mock", True)]
     if not fm_devices:
         raise HTTPException(status_code=404, detail="mock=False ayarlı FortiManager cihazı bulunamadı.")
@@ -472,11 +544,6 @@ def fm_list_policies(
     limit: int = Query(default=10, ge=1, le=100),
     _: db_models.User = Depends(require_admin),
 ):
-    """
-    Adım 3 — Belirli bir ADOM + paket kombinasyonundan ilk N kuralı çeker.
-    Ham API verisini normalize edilmiş haliyle döndürür; analiz yapılmaz.
-    Örnek: GET /api/fm/policies/root/MyPackage?limit=5
-    """
     fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager" and not d.get("mock", True)]
     if not fm_devices:
         raise HTTPException(status_code=404, detail="mock=False ayarlı FortiManager cihazı bulunamadı.")
@@ -525,8 +592,8 @@ def trigger_scan(
     db.add(session); db.commit(); db.refresh(session)
     session_id = session.id
 
-    # Taramayı arka plan thread'inde çalıştır (sunucu bloklanmaz)
-    selected_ids = body.device_ids  # None = tüm cihazlar
+    # Taramayı arka plan thread'inde çalıştır
+    selected_ids = body.device_ids
     def _bg():
         bg_db = SessionLocal()
         try:
@@ -535,8 +602,7 @@ def trigger_scan(
             ).first()
             _do_scan_core(bg_db, bg_session, device_ids=selected_ids)
         except Exception as e:
-            import logging as _l
-            _l.getLogger(__name__).error(f"Arka plan tarama hatası: {e}", exc_info=True)
+            log.error(f"Arka plan tarama hatası: {e}", exc_info=True)
         finally:
             bg_db.close()
 
@@ -582,8 +648,16 @@ def get_summary(
 ):
     sess = _latest_session(db)
     if not sess:
-        return {"total_devices": 0, "total_rules": 0, "total_findings": 0,
-                "findings_by_severity": {}, "findings_by_platform": {}, "top_risk_devices": [], "last_scan": None}
+        # Çalışan bir tarama var mı kontrol et
+        running = db.query(db_models.ScanSession).filter(
+            db_models.ScanSession.status == "running"
+        ).first()
+        return {
+            "total_devices": 0, "total_rules": 0, "total_findings": 0,
+            "findings_by_severity": {}, "findings_by_platform": {},
+            "top_risk_devices": [], "last_scan": None,
+            "scan_running": running is not None,
+        }
 
     findings = (
         db.query(db_models.FindingRecord)
@@ -592,11 +666,18 @@ def get_summary(
         .all()
     )
 
+    # Resolved bulgular hariç: yalnızca açık olanları say
+    fps = [f.fingerprint for f in findings]
+    status_map = _status_map(db, fps)
+
     sev_counts  = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
     plat_counts = {"fortimanager": 0, "paloalto": 0}
     device_map: dict = {}
 
     for f in findings:
+        st = status_map.get(f.fingerprint)
+        if st and st.status == "resolved":
+            continue   # Çözüldü bulgular özet sayaçlarına dahil edilmez
         sev_counts[f.severity]  = sev_counts.get(f.severity, 0) + 1
         plat_counts[f.platform] = plat_counts.get(f.platform, 0) + 1
         key = f.device_name
@@ -607,17 +688,23 @@ def get_summary(
         device_map[key]["total"] += 1
         device_map[key][f.severity] += 1
 
-    top = sorted(device_map.values(), key=lambda x: (-x["critical"], -x["high"], -x["total"]))
+    top = sorted(device_map.values(), key=lambda x: (-x.get("acil",0), -x["critical"], -x["high"], -x["total"]))
+
+    # Çalışan tarama var mı?
+    running = db.query(db_models.ScanSession).filter(
+        db_models.ScanSession.status == "running"
+    ).first()
 
     return {
         "total_devices":        sess.total_devices,
         "total_rules":          sess.total_rules,
-        "total_findings":       sess.total_findings,
+        "total_findings":       sum(sev_counts.values()),
         "findings_by_severity": sev_counts,
         "findings_by_platform": plat_counts,
         "top_risk_devices":     top[:6],
         "last_scan":            (sess.finished_at.isoformat() + "Z") if sess.finished_at else None,
         "session_id":           sess.id,
+        "scan_running":         running is not None,
     }
 
 
@@ -654,7 +741,7 @@ def get_devices(
             "last_scanned":  r.scanned_at.isoformat(),
         })
 
-    devices.sort(key=lambda d: (-d["findings"]["critical"], -d["findings"]["high"], -d["total_findings"]))
+    devices.sort(key=lambda d: (-d["findings"].get("acil",0), -d["findings"]["critical"], -d["findings"]["high"], -d["total_findings"]))
     return devices
 
 
@@ -665,7 +752,6 @@ def get_check_names(
     db: Session = Depends(get_db),
     _: db_models.User = Depends(get_current_user),
 ):
-    """Son taramadaki tüm benzersiz check_name değerlerini döndürür."""
     sess = _latest_session(db)
     if not sess:
         return []
@@ -688,6 +774,7 @@ def get_findings(
     fstatus:    Optional[str] = Query(None, alias="status"),
     check_name: Optional[str] = Query(None),
     search:     Optional[str] = Query(None),
+    changed_only: bool        = Query(False),   # Yalnızca kural değişmiş çözülmüş bulgular
     page:      int           = Query(1, ge=1),
     limit:     int           = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -751,11 +838,17 @@ def get_findings(
             "assigned_to":    st.assigned_to if st else None,
             "status_updated_by": st.updated_by if st else None,
             "status_updated_at": st.updated_at.isoformat() if st else None,
+            "is_rule_changed":   st.is_rule_changed if st else False,
+            "rule_changed_at":   st.rule_changed_at.isoformat() if (st and st.rule_changed_at) else None,
         })
 
-    # Durum filtresi (DB'de join yerine bellekte — basitlik için)
+    # Durum filtresi
     if fstatus and fstatus != "all":
         result_list = [f for f in result_list if f["status"] == fstatus]
+
+    # Yalnızca kural değişmiş çözülmüş bulgular
+    if changed_only:
+        result_list = [f for f in result_list if f.get("is_rule_changed")]
 
     result_list.sort(key=lambda f: SEV_ORDER.get(f["severity"], 99))
 
@@ -775,6 +868,22 @@ def update_finding_status(
     if body.status not in valid:
         raise HTTPException(400, f"Geçersiz durum. Geçerli değerler: {valid}")
 
+    # Bulgunun son taramadaki rule_details'ini al (snapshot için)
+    current_rule_details = None
+    sess = _latest_session(db)
+    if sess and body.status == "resolved":
+        latest_finding = (
+            db.query(db_models.FindingRecord)
+            .join(db_models.ScanResult)
+            .filter(
+                db_models.ScanResult.session_id == sess.id,
+                db_models.FindingRecord.fingerprint == fingerprint,
+            )
+            .first()
+        )
+        if latest_finding:
+            current_rule_details = latest_finding.rule_details
+
     st = db.query(db_models.FindingStatus).filter(
         db_models.FindingStatus.fingerprint == fingerprint
     ).first()
@@ -785,6 +894,16 @@ def update_finding_status(
         st.assigned_to = body.assigned_to
         st.updated_by  = current.username
         st.updated_at  = datetime.utcnow()
+        # Çözüldü olarak işaretlenince snapshot al; is_rule_changed sıfırla
+        if body.status == "resolved" and current_rule_details is not None:
+            st.rule_snapshot   = current_rule_details
+            st.is_rule_changed = False
+            st.rule_changed_at = None
+        elif body.status != "resolved":
+            # Tekrar açılırsa snapshot temizle
+            st.rule_snapshot   = None
+            st.is_rule_changed = False
+            st.rule_changed_at = None
     else:
         st = db_models.FindingStatus(
             fingerprint=fingerprint,
@@ -792,11 +911,98 @@ def update_finding_status(
             comment=body.comment,
             assigned_to=body.assigned_to,
             updated_by=current.username,
+            rule_snapshot=current_rule_details if body.status == "resolved" else None,
         )
         db.add(st)
 
     db.commit()
     return {"fingerprint": fingerprint, "status": st.status, "updated_by": st.updated_by}
+
+
+# ── Security Profiller endpoint'i ─────────────────────────────────────
+
+@app.get("/api/security-profiles")
+def get_security_profiles(
+    platform: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _: db_models.User = Depends(get_current_user),
+):
+    """
+    Son taramanın security profile verilerini döndürür.
+
+    Yanıt yapısı:
+    {
+      "by_customer": {
+        "<customer>": {
+          "total_rules": int,
+          "has_av": int,         # AV profili olan kural sayısı
+          "has_webfilter": int,
+          "has_filefilter": int,
+          "has_ips": int,
+          "has_all": int,        # Tüm 4 profile sahip kural sayısı
+          "platform": str,
+          "rules": [...]         # Kural detayları
+        }
+      },
+      "has_all_customers": ["customer1", ...]   # Tüm 4 profili kullanan müşteriler
+    }
+    """
+    sess = _latest_session(db)
+    if not sess:
+        return {"by_customer": {}, "has_all_customers": []}
+
+    q = db.query(db_models.SecurityProfileRecord).filter(
+        db_models.SecurityProfileRecord.session_id == sess.id
+    )
+    if platform and platform != "all":
+        q = q.filter(db_models.SecurityProfileRecord.platform == platform)
+
+    records = q.all()
+
+    by_customer: dict = {}
+    for rec in records:
+        cust = rec.customer or rec.device_name
+        if cust not in by_customer:
+            by_customer[cust] = {
+                "total_rules":   0,
+                "has_av":        0,
+                "has_webfilter": 0,
+                "has_filefilter":0,
+                "has_ips":       0,
+                "has_all":       0,
+                "platform":      rec.platform,
+                "device_name":   rec.device_name,
+                "rules":         [],
+            }
+        entry = by_customer[cust]
+        entry["total_rules"] += 1
+        if rec.has_av:         entry["has_av"]         += 1
+        if rec.has_webfilter:  entry["has_webfilter"]  += 1
+        if rec.has_filefilter: entry["has_filefilter"] += 1
+        if rec.has_ips:        entry["has_ips"]        += 1
+        if rec.has_av and rec.has_webfilter and rec.has_filefilter and rec.has_ips:
+            entry["has_all"] += 1
+        entry["rules"].append({
+            "rule_id":       rec.rule_id,
+            "rule_name":     rec.rule_name,
+            "has_av":        rec.has_av,
+            "has_webfilter": rec.has_webfilter,
+            "has_filefilter":rec.has_filefilter,
+            "has_ips":       rec.has_ips,
+            "profile_names": rec.profile_names or {},
+        })
+
+    # Tüm 4 profili kullanan müşteriler (en az bir kuralda)
+    has_all_customers = [
+        cust for cust, data in by_customer.items() if data["has_all"] > 0
+    ]
+
+    return {
+        "by_customer":       by_customer,
+        "has_all_customers": sorted(has_all_customers),
+        "session_id":        sess.id,
+        "last_scan":         (sess.finished_at.isoformat() + "Z") if sess.finished_at else None,
+    }
 
 
 # ── Zamanlayıcı endpoint'leri ─────────────────────────────────────────
@@ -822,8 +1028,6 @@ def download_excel(
     token_q: Optional[str] = Query(None, alias="token"),
     db: Session = Depends(get_db),
 ):
-    # Accept token from query param (browser download) or Authorization header
-    from fastapi import Request
     raw_token = token_q
     if not raw_token:
         raise HTTPException(401, "Token gereklidir. ?token=... parametresi ekleyin.")
@@ -866,10 +1070,9 @@ def download_excel(
     bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     def fill(color): return PatternFill("solid", fgColor=color)
-    sev_labels = {"critical": "🔴 KRİTİK", "high": "🟠 YÜKSEK", "medium": "🟡 ORTA", "low": "🟢 DÜŞÜK"}
+    sev_labels = {"acil": "🟣 ACİL", "critical": "🔴 KRİTİK", "high": "🟠 YÜKSEK", "medium": "🟡 ORTA", "low": "🟢 DÜŞÜK"}
     status_labels = {"open": "Açık", "acknowledged": "Onaylandı", "in_progress": "İşlemde", "resolved": "Çözüldü"}
 
-    # ── Özet sayfası ──────────────────────────────────────────────────
     ws = wb.active
     ws.title = "Özet"
     ws.column_dimensions["A"].width = 30
@@ -891,6 +1094,7 @@ def download_excel(
     rows = [
         ("Taranan Cihaz",  sess.total_devices),
         ("Toplam Kural",   sess.total_rules),
+        ("🟣 Acil",        sev_counts.get("acil", 0)),
         ("🔴 Kritik",      sev_counts["critical"]),
         ("🟠 Yüksek",      sev_counts["high"]),
         ("🟡 Orta",        sev_counts["medium"]),
@@ -900,7 +1104,6 @@ def download_excel(
         ws[f"A{i}"] = label; ws[f"B{i}"] = val
         ws[f"A{i}"].font = Font(bold=True); ws[f"A{i}"].border = bdr; ws[f"B{i}"].border = bdr
 
-    # ── Tüm bulgular ──────────────────────────────────────────────────
     ws2 = wb.create_sheet("Tüm Bulgular")
     hdrs = ["#","Önem","Durum","Platform","Müşteri","Cihaz","Kural ID","Kural Adı","Zafiyet","Açıklama","Öneri","Sorumlu"]
     widths = [5,12,14,14,22,26,10,28,26,50,50,20]
@@ -926,7 +1129,6 @@ def download_excel(
                 c.font = Font(bold=True, color="FFFFFF" if f.severity in ("acil","critical","high") else "000000")
         ws2.row_dimensions[ri].height = 40
 
-    # ── Cihaz bazlı sayfalar ──────────────────────────────────────────
     for res in results_q:
         ws3 = wb.create_sheet(res.device_name[:28])
         ws3["A1"] = f"{res.device_name} — {res.customer}"

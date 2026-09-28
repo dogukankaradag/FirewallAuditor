@@ -202,6 +202,9 @@ class FortiManagerClient:
           logtraffic: 0=disable 1=enable 2=all 3=utm
           status:     0=disable 1=enable
         Adres/servis alanları [{"name": "all"}] formatında gelir → ["all"]
+
+        Security profile alanları doğrudan string olarak gelir:
+          av-profile, webfilter-profile, ips-sensor, file-filter-profile
         """
         def extract_names(field: Any, fallback: str = "any") -> list[str]:
             if isinstance(field, list):
@@ -227,16 +230,26 @@ class FortiManagerClient:
         else:
             status = str(status_raw).lower()
 
+        # Security profiles — FM'de doğrudan string alan adları
+        security_profiles = {
+            "av":         str(pol.get("av-profile", "") or ""),
+            "webfilter":  str(pol.get("webfilter-profile", "") or ""),
+            "filefilter": str(pol.get("file-filter-profile", "") or ""),
+            "ips":        str(pol.get("ips-sensor", "") or ""),
+            "group":      "",   # FM'de profil grubu kavramı yok
+        }
+
         return {
-            "policyid":   pol.get("policyid", ""),
-            "name":       pol.get("name") or f"policy-{pol.get('policyid', '?')}",
-            "srcaddr":    extract_names(pol.get("srcaddr"), fallback="all"),
-            "dstaddr":    extract_names(pol.get("dstaddr"), fallback="all"),
-            "service":    extract_names(pol.get("service"),  fallback="ALL"),
-            "action":     action,
-            "logtraffic": logtraffic,
-            "status":     status,
-            "comments":   pol.get("comments", ""),
+            "policyid":          pol.get("policyid", ""),
+            "name":              pol.get("name") or f"policy-{pol.get('policyid', '?')}",
+            "srcaddr":           extract_names(pol.get("srcaddr"), fallback="all"),
+            "dstaddr":           extract_names(pol.get("dstaddr"), fallback="all"),
+            "service":           extract_names(pol.get("service"),  fallback="ALL"),
+            "action":            action,
+            "logtraffic":        logtraffic,
+            "status":            status,
+            "comments":          pol.get("comments", ""),
+            "security_profiles": security_profiles,
         }
 
     # ──────────────────────────────────────────────────────────────────────

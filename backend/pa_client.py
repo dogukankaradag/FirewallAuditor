@@ -79,6 +79,81 @@ class PaloAltoClient:
         members = [m.text or "" for m in container.findall("member") if m.text]
         return members if members else ["any"]
 
+    @staticmethod
+    def _extract_security_profiles(entry: ET.Element) -> dict:
+        """
+        <profile-setting> bloğundan güvenlik profillerini çıkarır.
+
+        İki format desteklenir:
+          1. Grup profili: <profile-setting><group><member>group-name</member></group></profile-setting>
+          2. Tekil profiller: <profile-setting><profiles><virus>...</virus><url-filtering>...</url-filtering>...</profiles></profile-setting>
+
+        Döner:
+          {
+            "av": str,          # Antivirus profil adı (boş = yok)
+            "webfilter": str,   # URL Filtering profil adı
+            "filefilter": str,  # File Blocking profil adı
+            "ips": str,         # IPS (vulnerability/spyware) profil adı
+            "group": str,       # Profil grubu adı (varsa)
+          }
+        """
+        result = {"av": "", "webfilter": "", "filefilter": "", "ips": "", "group": ""}
+
+        ps = entry.find("profile-setting")
+        if ps is None:
+            return result
+
+        # Grup profili
+        group_el = ps.find("group")
+        if group_el is not None:
+            members = group_el.findall("member")
+            if members and members[0].text:
+                result["group"] = members[0].text.strip()
+            return result
+
+        # Tekil profiller
+        profiles_el = ps.find("profiles")
+        if profiles_el is None:
+            return result
+
+        # Antivirus: <virus><member>prof-name</member></virus>
+        virus_el = profiles_el.find("virus")
+        if virus_el is not None:
+            m = virus_el.find("member")
+            if m is not None and m.text:
+                result["av"] = m.text.strip()
+
+        # URL Filtering / Web Filter: <url-filtering>
+        url_el = profiles_el.find("url-filtering")
+        if url_el is not None:
+            m = url_el.find("member")
+            if m is not None and m.text:
+                result["webfilter"] = m.text.strip()
+
+        # File Blocking: <file-blocking>
+        fb_el = profiles_el.find("file-blocking")
+        if fb_el is not None:
+            m = fb_el.find("member")
+            if m is not None and m.text:
+                result["filefilter"] = m.text.strip()
+
+        # IPS — vulnerability profile: <vulnerability>
+        vuln_el = profiles_el.find("vulnerability")
+        if vuln_el is not None:
+            m = vuln_el.find("member")
+            if m is not None and m.text:
+                result["ips"] = m.text.strip()
+
+        # IPS — spyware (anti-spyware): <spyware>
+        if not result["ips"]:
+            spy_el = profiles_el.find("spyware")
+            if spy_el is not None:
+                m = spy_el.find("member")
+                if m is not None and m.text:
+                    result["ips"] = m.text.strip()
+
+        return result
+
     # ── Rule parse ───────────────────────────────────────────────────────
 
     def _parse_security_rules(self, vsys_entry: ET.Element) -> list[dict]:
@@ -112,19 +187,23 @@ class PaloAltoClient:
             desc_el = entry.find("description")
             description = (desc_el.text or "").strip() if desc_el is not None else ""
 
+            # security profiles
+            security_profiles = self._extract_security_profiles(entry)
+
             rules.append({
-                "name":        name,
-                "source":      self._get_members(entry, "source"),
-                "destination": self._get_members(entry, "destination"),
-                "application": self._get_members(entry, "application"),
-                "service":     self._get_members(entry, "service"),
-                "from_zones":  self._get_members(entry, "from"),
-                "to_zones":    self._get_members(entry, "to"),
-                "action":      action,
-                "log_start":   log_start,
-                "log_end":     log_end,
-                "disabled":    disabled,
-                "description": description,
+                "name":               name,
+                "source":             self._get_members(entry, "source"),
+                "destination":        self._get_members(entry, "destination"),
+                "application":        self._get_members(entry, "application"),
+                "service":            self._get_members(entry, "service"),
+                "from_zones":         self._get_members(entry, "from"),
+                "to_zones":           self._get_members(entry, "to"),
+                "action":             action,
+                "log_start":          log_start,
+                "log_end":            log_end,
+                "disabled":           disabled,
+                "description":        description,
+                "security_profiles":  security_profiles,
             })
         return rules
 

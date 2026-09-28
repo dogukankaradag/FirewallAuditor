@@ -118,21 +118,65 @@ aside{
 .dev-name{flex:1;font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dev-cust{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dev-host{font-size:10px;color:var(--accent);font-family:monospace;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.badges{display:flex;gap:3px;flex-shrink:0}
+.badges{display:flex;gap:3px;flex-shrink:0;flex-wrap:wrap;max-width:80px;justify-content:flex-end}
 .badge{padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700}
-.badge.acil{background:rgba(204,0,204,.2);color:#cc00cc}.badge.critical{background:rgba(231,76,60,.2);color:var(--critical)}
+.badge.acil{background:rgba(204,0,204,.2);color:#cc00cc}
+.badge.critical{background:rgba(231,76,60,.2);color:var(--critical)}
 .badge.high{background:rgba(230,126,34,.2);color:var(--high)}
 .badge.medium{background:rgba(241,196,15,.2);color:var(--medium)}
 .badge.low{background:rgba(39,174,96,.2);color:var(--low)}
 
 /* Main */
 main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.filters{display:flex;align-items:center;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
-.search-box{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 11px;color:var(--text);font-size:13px}
+
+/* ── Ana sekmeler (Bulgular / Security Profiller) ────── */
+.main-tabs{
+  display:flex;align-items:center;gap:2px;
+  padding:0 18px;background:var(--surface);
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.main-tab{
+  padding:12px 18px;font-size:13px;font-weight:600;cursor:pointer;
+  border-bottom:2px solid transparent;color:var(--muted);
+  transition:color .15s,border-color .15s;white-space:nowrap;
+}
+.main-tab:hover{color:var(--text)}
+.main-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Bulgular panel */
+#bulguPanel{display:flex;flex-direction:column;flex:1;overflow:hidden}
+
+/* Security Profiller panel */
+#secPanel{display:none;flex-direction:column;flex:1;overflow:hidden}
+#secPanel.show{display:flex}
+
+/* Filters */
+.filters{display:flex;align-items:center;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface);flex-wrap:wrap}
+.search-box{flex:1;min-width:160px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 11px;color:var(--text);font-size:13px}
 .search-box:focus{outline:none;border-color:var(--accent)}
 .fsel{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-size:13px;cursor:pointer}
 .fsel:focus{outline:none;border-color:var(--accent)}
 .fcount{font-size:11px;color:var(--muted);white-space:nowrap}
+
+/* Güncellenmiş toggle */
+#changedToggle{
+  display:none;align-items:center;gap:6px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:7px;padding:6px 11px;cursor:pointer;font-size:12px;font-weight:600;
+  color:var(--muted);transition:all .15s;white-space:nowrap;
+}
+#changedToggle.show{display:flex}
+#changedToggle.active{background:rgba(230,126,34,.12);border-color:var(--high);color:var(--high)}
+#changedToggle .change-dot{width:7px;height:7px;border-radius:50%;background:var(--high)}
+
+/* Changed badge in table */
+.changed-badge{
+  display:inline-flex;align-items:center;gap:3px;
+  padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;
+  background:rgba(230,126,34,.15);color:var(--high);border:1px solid rgba(230,126,34,.3);
+  margin-left:5px;
+}
+
 .table-wrap{flex:1;overflow-y:auto;padding:14px 18px}
 table{width:100%;border-collapse:collapse}
 thead tr{background:var(--surface2)}
@@ -141,7 +185,8 @@ th{text-align:left;padding:9px 11px;font-size:10px;font-weight:700;color:var(--m
 .finding-row:hover{background:var(--surface2)}
 td{padding:9px 11px;vertical-align:middle}
 .sev-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
-.sev-pill.acil{background:rgba(204,0,204,.15);color:#cc00cc;border:1px solid rgba(204,0,204,.3)}.sev-pill.critical{background:rgba(231,76,60,.15);color:var(--critical);border:1px solid rgba(231,76,60,.3)}
+.sev-pill.acil{background:rgba(204,0,204,.15);color:#cc00cc;border:1px solid rgba(204,0,204,.3)}
+.sev-pill.critical{background:rgba(231,76,60,.15);color:var(--critical);border:1px solid rgba(231,76,60,.3)}
 .sev-pill.high{background:rgba(230,126,34,.15);color:var(--high);border:1px solid rgba(230,126,34,.3)}
 .sev-pill.medium{background:rgba(241,196,15,.15);color:var(--medium);border:1px solid rgba(241,196,15,.3)}
 .sev-pill.low{background:rgba(39,174,96,.15);color:var(--low);border:1px solid rgba(39,174,96,.3)}
@@ -196,14 +241,22 @@ td{padding:9px 11px;vertical-align:middle}
 .st-save-btn:hover{background:#3a7de8}
 .readonly-notice{font-size:12px;color:var(--muted);font-style:italic;padding:6px 0}
 
+/* Rule-changed warning box in modal */
+.rule-changed-box{
+  background:rgba(230,126,34,.1);border:1px solid rgba(230,126,34,.4);
+  border-radius:8px;padding:10px 13px;margin-bottom:12px;
+  display:flex;align-items:flex-start;gap:9px;
+}
+.rule-changed-box .rc-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.rule-changed-box .rc-text{font-size:13px;color:var(--high);line-height:1.5}
+.rule-changed-box .rc-sub{font-size:11px;color:var(--muted);margin-top:3px}
+
 /* Hist modal */
 .hist-table{width:100%;border-collapse:collapse;font-size:13px}
 .hist-table th{background:var(--surface2);padding:8px 10px;text-align:left;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
 .hist-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 .status-dot.completed{background:var(--low)}.status-dot.running{background:var(--medium)}.status-dot.failed{background:var(--critical)}
-
-
 
 /* ── Cihaz seçim modal ──────────────────────────────────────── */
 #deviceModal .modal-body{padding:16px 20px}
@@ -224,7 +277,7 @@ td{padding:9px 11px;vertical-align:middle}
   display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
   background:var(--surface);border:1px solid var(--accent);border-radius:12px;
   padding:14px 24px;box-shadow:var(--shadow);z-index:150;
-  display:none;align-items:center;gap:14px;min-width:340px;
+  align-items:center;gap:14px;min-width:340px;
 }
 #scanBanner.show{display:flex}
 #scanBanner .spin-icon{font-size:22px;animation:spin .9s linear infinite;display:inline-block}
@@ -246,6 +299,52 @@ td{padding:9px 11px;vertical-align:middle}
 .user-field input:focus,.user-field select:focus{outline:none;border-color:var(--accent)}
 .user-err{background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:var(--critical);border-radius:7px;padding:8px 11px;font-size:12px;margin-bottom:10px;display:none}
 .user-ok{background:rgba(39,174,96,.1);border:1px solid rgba(39,174,96,.3);color:var(--low);border-radius:7px;padding:8px 11px;font-size:12px;margin-bottom:10px;display:none}
+
+/* ── Security Profiller panel ────────────────────────── */
+.sec-toolbar{
+  display:flex;align-items:center;gap:10px;padding:10px 18px;
+  border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface);
+}
+.sec-scroll{flex:1;overflow-y:auto;padding:16px 18px}
+.sec-section{margin-bottom:28px}
+.sec-section-title{
+  font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
+}
+.sec-section-title span.count-chip{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:2px 8px;font-size:11px;color:var(--muted);font-weight:600;
+}
+.sec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.sec-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:14px 16px;
+}
+.sec-card.has-all{border-color:rgba(39,174,96,.4);background:rgba(39,174,96,.05)}
+.sec-card-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.sec-card-name{font-weight:600;font-size:13px;word-break:break-word}
+.sec-card-device{font-size:11px;color:var(--muted);margin-top:2px}
+.sec-profile-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.sec-pchip{
+  display:flex;flex-direction:column;align-items:center;
+  background:var(--surface);border-radius:7px;padding:7px 4px;
+  border:1px solid var(--border);
+}
+.sec-pchip.active{background:rgba(79,142,247,.1);border-color:rgba(79,142,247,.4)}
+.sec-pchip .pc-icon{font-size:14px;margin-bottom:3px}
+.sec-pchip .pc-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+.sec-pchip .pc-count{font-size:12px;font-weight:700;color:var(--text)}
+.sec-pchip.active .pc-count{color:var(--accent)}
+.sec-total{font-size:11px;color:var(--muted)}
+.sec-all-badge{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;
+  background:rgba(39,174,96,.15);color:var(--low);font-size:11px;font-weight:700;
+  border:1px solid rgba(39,174,96,.3);
+}
+.sec-plat-tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;margin-left:6px}
+.sec-plat-tag.fm{background:rgba(59,130,246,.15);color:var(--fm)}
+.sec-plat-tag.pa{background:rgba(249,115,22,.15);color:var(--pa)}
+.sec-empty{text-align:center;padding:60px 20px;color:var(--muted)}
 
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -328,46 +427,77 @@ td{padding:9px 11px;vertical-align:middle}
     </aside>
 
     <main>
-      <div class="filters">
-        <input class="search-box" id="searchBox" type="text" placeholder="🔍  Kural adı, müşteri, zafiyet ara..." oninput="applyFilters()"/>
-        <select class="fsel" id="sevFilter" onchange="applyFilters()">
-          <option value="all">Tüm Önem</option>
-          <option value="acil">🚨 Acil</option>
-          <option value="critical">🔴 Kritik</option>
-          <option value="high">🟠 Yüksek</option>
-          <option value="medium">🟡 Orta</option>
-          <option value="low">🟢 Düşük</option>
-        </select>
-        <select class="fsel" id="platFilter" onchange="applyFilters()">
-          <option value="all">Tüm Platform</option>
-          <option value="fortimanager">FortiManager</option>
-          <option value="paloalto">Palo Alto</option>
-        </select>
-        <select class="fsel" id="stFilter" onchange="applyFilters()">
-          <option value="all">Tüm Durum</option>
-          <option value="open">Açık</option>
-          <option value="acknowledged">Onaylandı</option>
-          <option value="in_progress">İşlemde</option>
-          <option value="resolved">Çözüldü</option>
-        </select>
-        <select class="fsel" id="checkFilter" onchange="applyFilters()">
-          <option value="all">Tüm Zafiyet</option>
-        </select>
-        <span class="fcount" id="findingCount">— bulgu</span>
+      <!-- Ana sekmeler -->
+      <div class="main-tabs">
+        <div class="main-tab active" id="tabBulgular" onclick="switchTab('bulgular')">📋 Bulgular</div>
+        <div class="main-tab" id="tabSec" onclick="switchTab('sec')">🔒 Security Profiller</div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Önem</th><th>Durum</th><th>Platform</th>
-              <th>Müşteri / Cihaz</th><th>Kural</th><th>Zafiyet</th>
-            </tr>
-          </thead>
-          <tbody id="findingsBody">
-            <tr><td colspan="6" class="empty-state"><div class="empty-icon">⏳</div><div>Yükleniyor...</div></td></tr>
-          </tbody>
-        </table>
-      </div>
+
+      <!-- Bulgular paneli -->
+      <div id="bulguPanel">
+        <div class="filters">
+          <input class="search-box" id="searchBox" type="text" placeholder="🔍  Kural adı, müşteri, zafiyet ara..." oninput="applyFilters()"/>
+          <select class="fsel" id="sevFilter" onchange="applyFilters()">
+            <option value="all">Tüm Önem</option>
+            <option value="acil">🚨 Acil</option>
+            <option value="critical">🔴 Kritik</option>
+            <option value="high">🟠 Yüksek</option>
+            <option value="medium">🟡 Orta</option>
+            <option value="low">🟢 Düşük</option>
+          </select>
+          <select class="fsel" id="platFilter" onchange="applyFilters()">
+            <option value="all">Tüm Platform</option>
+            <option value="fortimanager">FortiManager</option>
+            <option value="paloalto">Palo Alto</option>
+          </select>
+          <select class="fsel" id="stFilter" onchange="onStFilterChange()">
+            <option value="all">Tüm Durum</option>
+            <option value="open">Açık</option>
+            <option value="acknowledged">Onaylandı</option>
+            <option value="in_progress">İşlemde</option>
+            <option value="resolved">Çözüldü</option>
+          </select>
+          <!-- Güncellenmiş toggle — sadece "Çözüldü" seçilince görünür -->
+          <div id="changedToggle" onclick="toggleChangedOnly()">
+            <span class="change-dot"></span>🔄 Güncellenmiş
+          </div>
+          <select class="fsel" id="checkFilter" onchange="applyFilters()">
+            <option value="all">Tüm Zafiyet</option>
+          </select>
+          <span class="fcount" id="findingCount">— bulgu</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Önem</th><th>Durum</th><th>Platform</th>
+                <th>Müşteri / Cihaz</th><th>Kural</th><th>Zafiyet</th>
+              </tr>
+            </thead>
+            <tbody id="findingsBody">
+              <tr><td colspan="6" class="empty-state"><div class="empty-icon">⏳</div><div>Yükleniyor...</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- /bulguPanel -->
+
+      <!-- Security Profiller paneli -->
+      <div id="secPanel">
+        <div class="sec-toolbar">
+          <select class="fsel" id="secPlatFilter" onchange="loadSecurityProfiles()">
+            <option value="">Tüm Platform</option>
+            <option value="fortimanager">FortiManager</option>
+            <option value="paloalto">Palo Alto</option>
+          </select>
+          <span class="fcount" id="secCount" style="margin-left:4px">—</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost" onclick="loadSecurityProfiles()">🔄 Yenile</button>
+        </div>
+        <div class="sec-scroll" id="secScroll">
+          <div class="sec-empty"><div style="font-size:36px;margin-bottom:10px">🔒</div>Yükleniyor...</div>
+        </div>
+      </div><!-- /secPanel -->
+
     </main>
   </div>
 </div>
@@ -394,8 +524,6 @@ td{padding:9px 11px;vertical-align:middle}
   </div>
 </div>
 
-<!-- ── Detay Modal ── -->
-
 <!-- ── Cihaz seçim modal ── -->
 <div class="overlay" id="deviceOverlay" onclick="closeDeviceModal(event)">
   <div class="modal" id="deviceModal" style="max-width:440px">
@@ -418,6 +546,7 @@ td{padding:9px 11px;vertical-align:middle}
   </div>
 </div>
 
+<!-- ── Detay Modal ── -->
 <div class="overlay" id="overlay" onclick="closeModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-hdr">
@@ -439,17 +568,58 @@ td{padding:9px 11px;vertical-align:middle}
   </div>
 </div>
 
+<!-- ── Kullanıcı Düzenleme Modal ── -->
+<div class="overlay" id="editUserOverlay" onclick="closeEditUser(event)">
+  <div class="modal" style="max-width:400px" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">✏️ Kullanıcıyı Düzenle</span>
+      <button class="modal-close" onclick="closeEditUser()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px 20px">
+      <input type="hidden" id="editUserId">
+      <div class="user-err" id="editUserErr"></div>
+      <div class="user-grid">
+        <div class="user-field" style="grid-column:1/-1">
+          <label>Kullanıcı Adı</label>
+          <input id="editUsername" type="text" readonly style="opacity:.6;cursor:not-allowed">
+        </div>
+        <div class="user-field">
+          <label>Ad Soyad</label>
+          <input id="editFullname" type="text" placeholder="Ad Soyad">
+        </div>
+        <div class="user-field">
+          <label>Rol</label>
+          <select id="editRole">
+            <option value="readonly">Okuma (Read-only)</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="user-field" style="grid-column:1/-1">
+          <label>Yeni Şifre <span style="color:var(--muted);font-weight:400">(boş = değiştirme)</span></label>
+          <input id="editPassword" type="password" placeholder="••••••••">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-ghost" onclick="closeEditUser()">İptal</button>
+        <button class="btn btn-primary" onclick="saveEditUser()">💾 Kaydet</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 
-/* ── Auth state ─────────────────────────────────────────────────── */
-let token = localStorage.getItem('fw_token') || '';
+/* ── State ──────────────────────────────────────────────────────── */
+let token       = localStorage.getItem('fw_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('fw_user') || 'null');
-let isAdmin = false;
+let isAdmin     = false;
 let allFindings = [];
-let activeDevice = 'all';
-let currentFinding = null;
-let currentStatus = 'open';
+let activeDevice    = 'all';
+let currentFinding  = null;
+let currentStatus   = 'open';
+let changedOnly     = false;   // Güncellenmiş filtre
+let activeTab       = 'bulgular';
 
 const SEV_ICONS   = {acil:'🚨',critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
 const SEV_LABELS  = {acil:'Acil',critical:'Kritik',high:'Yüksek',medium:'Orta',low:'Düşük'};
@@ -478,8 +648,8 @@ async function api(path, opts = {}) {
 
 /* ── Login / Logout ─────────────────────────────────────────────── */
 async function doLogin() {
-  const u = document.getElementById('inputUser').value.trim();
-  const p = document.getElementById('inputPass').value;
+  const u   = document.getElementById('inputUser').value.trim();
+  const p   = document.getElementById('inputPass').value;
   const btn = document.getElementById('loginBtn');
   const err = document.getElementById('loginErr');
   if (!u || !p) return;
@@ -498,7 +668,7 @@ async function doLogin() {
       return;
     }
     const data = await res.json();
-    token = data.access_token;
+    token       = data.access_token;
     currentUser = {username: data.username, full_name: data.full_name, role: data.role};
     localStorage.setItem('fw_token', token);
     localStorage.setItem('fw_user', JSON.stringify(currentUser));
@@ -521,16 +691,14 @@ function showApp() {
   document.getElementById('app').classList.add('show');
   isAdmin = currentUser?.role === 'admin';
 
-  // Kullanıcı bilgisi
   const name = currentUser?.username || '?';
   document.getElementById('userAvatar').textContent = name[0].toUpperCase();
-  document.getElementById('userName').textContent = currentUser?.full_name || name;
+  document.getElementById('userName').textContent   = currentUser?.full_name || name;
   const rb = document.getElementById('roleBadge');
   rb.textContent = isAdmin ? 'Admin' : 'Okuma';
   rb.className   = 'role-badge ' + (isAdmin ? 'admin' : 'readonly');
 
-  // Admin-only: tarama ve kullanıcı butonu
-  document.getElementById('scanBtn').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('scanBtn').style.display  = isAdmin ? 'flex' : 'none';
   document.getElementById('usersBtn').style.display = isAdmin ? 'flex' : 'none';
 
   init();
@@ -538,56 +706,105 @@ function showApp() {
 
 /* ── Bootstrap ─────────────────────────────────────────────────── */
 async function init() {
-  try {
-    await Promise.all([loadSummary(), loadDevices()]);
-    await loadFindings();
-    await populateCheckFilter();
-  } catch(err) {
-    console.error('init hatası:', err);
-    document.getElementById('deviceList').innerHTML =
-      `<div style="padding:16px;color:#e74c3c;font-size:12px">⚠️ Yüklenemedi: ${err.message}</div>`;
-    document.getElementById('findingsBody').innerHTML =
-      `<tr><td colspan="6" style="padding:20px;color:#e74c3c;text-align:center">⚠️ Veriler yüklenirken hata: ${err.message}</td></tr>`;
-  }
+  // Önce summary yükle — scan_running ise banner'ı hemen göster
+  await loadSummary();
+  // Cihaz ve bulgu listesi paralel
+  await Promise.all([loadDevices(), loadFindings()]);
+  await populateCheckFilter();
 }
 
 /* ── API çağrıları ─────────────────────────────────────────────── */
+
+let _startupBannerInterval = null;
+let _startupBannerTick     = null;
+
 async function loadSummary() {
   const res = await api('/api/summary');
   if (!res) return;
   const d = await res.json();
-  document.getElementById('statTotal').textContent    = d.total_findings;
-  document.getElementById('statAcil').textContent     = d.findings_by_severity?.acil ?? 0;
+
+  document.getElementById('statTotal').textContent    = d.total_findings   ?? 0;
+  document.getElementById('statAcil').textContent     = d.findings_by_severity?.acil     ?? 0;
   document.getElementById('statCritical').textContent = d.findings_by_severity?.critical ?? 0;
-  document.getElementById('statHigh').textContent     = d.findings_by_severity?.high ?? 0;
-  document.getElementById('statMedium').textContent   = d.findings_by_severity?.medium ?? 0;
-  document.getElementById('statLow').textContent      = d.findings_by_severity?.low ?? 0;
+  document.getElementById('statHigh').textContent     = d.findings_by_severity?.high     ?? 0;
+  document.getElementById('statMedium').textContent   = d.findings_by_severity?.medium   ?? 0;
+  document.getElementById('statLow').textContent      = d.findings_by_severity?.low      ?? 0;
+
   if (d.last_scan) {
     const dt = new Date(d.last_scan);
-    document.getElementById('lastScan').textContent = `Son tarama: ${dt.toLocaleString('tr-TR', {timeZone: 'Europe/Istanbul'})}`;
+    document.getElementById('lastScan').textContent =
+      `Son tarama: ${dt.toLocaleString('tr-TR', {timeZone: 'Europe/Istanbul'})}`;
   }
+
+  // Arka planda tarama devam ediyorsa banner'ı hemen aç
+  if (d.scan_running && !document.getElementById('scanBanner').classList.contains('show')) {
+    _showStartupBanner();
+  }
+}
+
+function _showStartupBanner() {
+  const banner  = document.getElementById('scanBanner');
+  const timerEl = document.getElementById('scanTimer');
+  const subEl   = document.getElementById('banSub');
+  banner.classList.add('show');
+  const startTime = Date.now();
+
+  if (_startupBannerTick) clearInterval(_startupBannerTick);
+  _startupBannerTick = setInterval(() => {
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    timerEl.textContent = String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+    if (s < 20) subEl.textContent = 'Startup taraması — cihazlara bağlanılıyor...';
+    else if (s < 60) subEl.textContent = 'Kurallar çekiliyor, bulgular analiz ediliyor...';
+    else subEl.textContent = `Tarama sürüyor... (${Math.floor(s/60)} dk ${s%60} sn)`;
+  }, 1000);
+
+  if (_startupBannerInterval) clearInterval(_startupBannerInterval);
+  _startupBannerInterval = setInterval(async () => {
+    const hr = await api('/api/scan/history?limit=1');
+    if (!hr) return;
+    const sessions = await hr.json();
+    const latest = sessions[0];
+    if (!latest) return;
+    if (latest.status === 'completed' || latest.status === 'failed') {
+      clearInterval(_startupBannerInterval);
+      clearInterval(_startupBannerTick);
+      if (latest.status === 'completed') {
+        subEl.textContent = `✅ Tamamlandı — ${latest.total_devices} cihaz, ${latest.total_findings} bulgu`;
+      } else {
+        subEl.textContent = '❌ Tarama başarısız — loglara bakın';
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      banner.classList.remove('show');
+      await init();
+    }
+  }, 5000);
 }
 
 async function loadDevices() {
   const res = await api('/api/devices');
   if (!res) { renderDevices([]); return; }
   const devices = await res.json();
-  if (!Array.isArray(devices)) {
-    console.error('/api/devices dizi dönmedi:', devices);
-    renderDevices([]);
-    return;
-  }
-  renderDevices(devices);
+  renderDevices(Array.isArray(devices) ? devices : []);
 }
 
-async function loadFindings(deviceId='all', severity='all', platform='all', fstatus='all', search='', checkName='all') {
+async function loadFindings(
+  deviceId   = activeDevice,
+  severity   = document.getElementById('sevFilter')?.value   || 'all',
+  platform   = document.getElementById('platFilter')?.value  || 'all',
+  fstatus    = document.getElementById('stFilter')?.value    || 'all',
+  search     = document.getElementById('searchBox')?.value?.trim() || '',
+  checkName  = document.getElementById('checkFilter')?.value || 'all',
+  _changedOnly = changedOnly,
+) {
   let url = '/api/findings?limit=500';
-  if (deviceId && deviceId !== 'all')  url += `&device_id=${encodeURIComponent(deviceId)}`;
-  if (severity && severity !== 'all')  url += `&severity=${severity}`;
-  if (platform && platform !== 'all')  url += `&platform=${platform}`;
-  if (fstatus  && fstatus  !== 'all')  url += `&status=${fstatus}`;
-  if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (deviceId  && deviceId  !== 'all') url += `&device_id=${encodeURIComponent(deviceId)}`;
+  if (severity  && severity  !== 'all') url += `&severity=${severity}`;
+  if (platform  && platform  !== 'all') url += `&platform=${platform}`;
+  if (fstatus   && fstatus   !== 'all') url += `&status=${fstatus}`;
+  if (search)                           url += `&search=${encodeURIComponent(search)}`;
   if (checkName && checkName !== 'all') url += `&check_name=${encodeURIComponent(checkName)}`;
+  if (_changedOnly)                     url += `&changed_only=true`;
+
   const res = await api(url);
   if (!res) return;
   const data = await res.json();
@@ -601,12 +818,10 @@ async function populateCheckFilter() {
   if (!res) return;
   const names = await res.json();
   const sel = document.getElementById('checkFilter');
-  // Keep "Tüm Zafiyet" option, add the rest
   sel.innerHTML = '<option value="all">Tüm Zafiyet</option>';
   names.forEach(n => {
     const opt = document.createElement('option');
-    opt.value = n;
-    opt.textContent = n;
+    opt.value = n; opt.textContent = n;
     sel.appendChild(opt);
   });
 }
@@ -616,14 +831,13 @@ let _scanPollInterval = null;
 /* ── Cihaz seçim modal ──────────────────────────────────────────── */
 async function openDeviceModal() {
   const overlay = document.getElementById('deviceOverlay');
-  // id yerine CSS selector — sidebar ile çakışma olmaz
   const listEl  = overlay.querySelector('.device-list');
   overlay.classList.add('open');
   listEl.innerHTML = '<li style="color:var(--muted);padding:10px">Cihazlar yükleniyor...</li>';
 
   const res = await api('/api/connectors');
   if (!res) {
-    listEl.innerHTML = '<li style="color:var(--muted);padding:10px">⚠️ Cihaz listesi alınamadı — konsolu kontrol edin.</li>';
+    listEl.innerHTML = '<li style="color:var(--muted);padding:10px">⚠️ Cihaz listesi alınamadı.</li>';
     return;
   }
   const devices = await res.json();
@@ -632,21 +846,20 @@ async function openDeviceModal() {
     return;
   }
 
-  // FortiManager ve Palo Alto'yu gruplandır
   const groups = [
-    { key: 'fortimanager', label: 'FortiManager', icon: '🛡️', items: devices.filter(d => d.type === 'fortimanager') },
-    { key: 'paloalto',     label: 'Palo Alto',    icon: '🔥', items: devices.filter(d => d.type === 'paloalto') },
+    { key:'fortimanager', label:'FortiManager', icon:'🛡️', items: devices.filter(d => d.type==='fortimanager') },
+    { key:'paloalto',     label:'Palo Alto',    icon:'🔥', items: devices.filter(d => d.type==='paloalto') },
   ].filter(g => g.items.length);
 
   listEl.innerHTML = groups.map(g => `
-    <li class="dev-group-header" style="pointer-events:none;background:none;border:none;padding:6px 4px 2px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px">
+    <li style="pointer-events:none;background:none;border:none;padding:6px 4px 2px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px">
       ${g.icon} ${g.label}
     </li>
     ${g.items.map(d => `<li onclick="toggleDeviceCheck('${d.id}')">
       <input type="checkbox" id="dev_${d.id}" value="${d.id}" checked onchange="updateSelectAll()">
       <div class="dev-info">
-        <div class="dev-label">${d.label}</div>
-        <div class="dev-type" style="font-size:11px;color:var(--muted)">${d.host}</div>
+        <div class="dev-label">${esc(d.label)}</div>
+        <div class="dev-type">${esc(d.host)}</div>
       </div>
     </li>`).join('')}
   `).join('');
@@ -659,26 +872,23 @@ function toggleDeviceCheck(id) {
   const cb = document.getElementById('dev_' + id);
   if (cb) { cb.checked = !cb.checked; updateSelectAll(); }
 }
-
 function updateSelectAll() {
   const overlay = document.getElementById('deviceOverlay');
-  const all = overlay.querySelectorAll('input[type="checkbox"][id^="dev_"]');
+  const all     = overlay.querySelectorAll('input[type="checkbox"][id^="dev_"]');
   const checked = overlay.querySelectorAll('input[type="checkbox"][id^="dev_"]:checked');
-  document.getElementById('selectAllDevices').checked = all.length > 0 && checked.length === all.length;
+  document.getElementById('selectAllDevices').checked      = all.length > 0 && checked.length === all.length;
   document.getElementById('selectAllDevices').indeterminate = checked.length > 0 && checked.length < all.length;
 }
-
 function toggleSelectAll(checked) {
   document.getElementById('deviceOverlay').querySelectorAll('input[type="checkbox"][id^="dev_"]').forEach(cb => cb.checked = checked);
 }
-
 function closeDeviceModal(e) {
   if (!e || e.target === document.getElementById('deviceOverlay'))
     document.getElementById('deviceOverlay').classList.remove('open');
 }
 
 async function startScanWithDevices() {
-  const checked = [...document.getElementById('deviceOverlay').querySelectorAll('input[type="checkbox"][id^="dev_"]:checked')];
+  const checked   = [...document.getElementById('deviceOverlay').querySelectorAll('input[type="checkbox"][id^="dev_"]:checked')];
   if (!checked.length) { alert('Lütfen en az bir cihaz seçin.'); return; }
   const deviceIds = checked.map(cb => cb.value);
   document.getElementById('deviceOverlay').classList.remove('open');
@@ -686,39 +896,34 @@ async function startScanWithDevices() {
 }
 
 async function triggerScan(deviceIds) {
-  const btn    = document.getElementById('scanBtn');
-  const banner = document.getElementById('scanBanner');
-  const timerEl= document.getElementById('scanTimer');
-  const subEl  = document.getElementById('banSub');
+  const btn     = document.getElementById('scanBtn');
+  const banner  = document.getElementById('scanBanner');
+  const timerEl = document.getElementById('scanTimer');
+  const subEl   = document.getElementById('banSub');
   btn.disabled = true; btn.innerHTML = '<span class="spinning">⟳</span> Taranıyor...';
 
-  // Taramayı başlat (anında döner)
   const body = deviceIds && deviceIds.length ? {device_ids: deviceIds} : {};
-  const res = await api('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const res  = await api('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   if (!res) { btn.disabled=false; btn.innerHTML='▶ Tara'; return; }
-  const startData = await res.json();
 
   banner.classList.add('show');
   const startTime = Date.now();
-
-  // Sayaç
   const tick = setInterval(() => {
-    const s = Math.floor((Date.now()-startTime)/1000);
+    const s  = Math.floor((Date.now()-startTime)/1000);
     const mm = String(Math.floor(s/60)).padStart(2,'0');
     const ss = String(s%60).padStart(2,'0');
     timerEl.textContent = mm+':'+ss;
-    if (s < 20) subEl.textContent = 'FortiManager\'e bağlanılıyor, ADOM\'lar alınıyor...';
+    if (s < 20)      subEl.textContent = "FortiManager'e bağlanılıyor, ADOM'lar alınıyor...";
     else if (s < 60) subEl.textContent = 'Palo Alto cihazları taranıyor, vsys kuralları çekiliyor...';
-    else subEl.textContent = `Tarama sürüyor... (${Math.floor(s/60)} dk ${s%60} sn — 400+ vsys için normal)`;
+    else             subEl.textContent = `Tarama sürüyor... (${Math.floor(s/60)} dk ${s%60} sn)`;
   }, 1000);
 
-  // Her 4 saniyede durumu kontrol et
   if (_scanPollInterval) clearInterval(_scanPollInterval);
   _scanPollInterval = setInterval(async () => {
     const hr = await api('/api/scan/history?limit=1');
     if (!hr) return;
     const sessions = await hr.json();
-    const latest = sessions[0];
+    const latest   = sessions[0];
     if (!latest) return;
     if (latest.status === 'completed') {
       clearInterval(_scanPollInterval); clearInterval(tick);
@@ -760,10 +965,11 @@ function renderDevices(devices) {
 
 function devItem(d) {
   const a = activeDevice === d.id ? 'active' : '';
-  const b = ['critical','high','medium','low'].filter(s=>d.findings[s]>0)
-    .map(s=>`<span class="badge ${s}">${d.findings[s]}</span>`).join('');
+  const b = ['acil','critical','high','medium','low']
+    .filter(s => (d.findings?.[s] ?? 0) > 0)
+    .map(s => `<span class="badge ${s}">${d.findings[s]}</span>`).join('');
   const displayName = d.label && d.label !== d.name ? d.label : d.name;
-  const hostLine = d.host ? `<div class="dev-host">${esc(d.host)}</div>` : '';
+  const hostLine    = d.host ? `<div class="dev-host">${esc(d.host)}</div>` : '';
   return `<div class="dev-item ${a}" onclick="selectDevice('${d.id}',this)">
     <div style="flex:1;min-width:0">
       <div class="dev-name">${esc(displayName)}</div>
@@ -781,10 +987,14 @@ function renderFindings(findings) {
     tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><div class="empty-icon">✅</div><div>Bu filtre için bulgu yok</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = findings.map((f,i) => `
+  tbody.innerHTML = findings.map((f,i) => {
+    const changedBadge = f.is_rule_changed
+      ? `<span class="changed-badge">🔄 Kural Değişti</span>` : '';
+    const statusCell   = `<span class="st-pill ${f.status}">${STAT_ICONS[f.status]||''} ${STAT_LABELS[f.status]||f.status}</span>${changedBadge}`;
+    return `
     <tr class="finding-row" onclick="openModal(${i})">
       <td><span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span></td>
-      <td><span class="st-pill ${f.status}">${STAT_ICONS[f.status]||''} ${STAT_LABELS[f.status]||f.status}</span></td>
+      <td>${statusCell}</td>
       <td><span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FM':'PA'}</span></td>
       <td>
         <div style="font-weight:500">${esc(f.customer)}</div>
@@ -796,7 +1006,8 @@ function renderFindings(findings) {
         <div style="font-size:11px;color:var(--muted)">ID: ${esc(f.rule_id)}</div>
       </td>
       <td style="color:var(--text);font-weight:500">${esc(f.check_name)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 /* ── Modal ──────────────────────────────────────────────────────── */
@@ -812,6 +1023,16 @@ function openModal(idx) {
   const kvs = Object.entries(f.rule_details||{})
     .map(([k,v]) => `<div class="dkv"><div class="dkv-k">${esc(k)}</div><div class="dkv-v">${esc(String(v))}</div></div>`)
     .join('');
+
+  // Kural değişti uyarısı
+  const changedWarning = f.is_rule_changed ? `
+    <div class="rule-changed-box">
+      <span class="rc-icon">🔄</span>
+      <div>
+        <div class="rc-text">Bu kural çözüldü olarak işaretlendikten sonra değişti.</div>
+        <div class="rc-sub">Değişme tarihi: ${f.rule_changed_at ? new Date(f.rule_changed_at).toLocaleString('tr-TR') : '—'} · Lütfen tekrar inceleyin.</div>
+      </div>
+    </div>` : '';
 
   const stEditor = isAdmin ? `
     <div class="status-editor">
@@ -834,6 +1055,7 @@ function openModal(idx) {
     </div>`;
 
   document.getElementById('modalBody').innerHTML = `
+    ${changedWarning}
     <div class="dsec">
       <div class="dlabel">Müşteri & Cihaz</div>
       <div class="dtext">
@@ -882,14 +1104,7 @@ async function saveStatus() {
   });
   if (!res || !res.ok) { alert('Güncelleme başarısız.'); return; }
   closeModal();
-  await loadFindings(
-    activeDevice,
-    document.getElementById('sevFilter').value,
-    document.getElementById('platFilter').value,
-    document.getElementById('stFilter').value,
-    document.getElementById('searchBox').value,
-    document.getElementById('checkFilter').value,
-  );
+  applyFilters();
 }
 
 function closeModal(e) {
@@ -897,7 +1112,171 @@ function closeModal(e) {
     document.getElementById('overlay').classList.remove('open');
 }
 
-/* ── Tarama geçmişi ─────────────────────────────────────────────── */
+/* ── Tab yönetimi ────────────────────────────────────────────────── */
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('tabBulgular').classList.toggle('active', tab === 'bulgular');
+  document.getElementById('tabSec').classList.toggle('active',      tab === 'sec');
+  document.getElementById('bulguPanel').style.display = tab === 'bulgular' ? 'flex' : 'none';
+  document.getElementById('secPanel').classList.toggle('show',      tab === 'sec');
+  document.getElementById('bulguPanel').style.flexDirection = 'column';
+  if (tab === 'sec') loadSecurityProfiles();
+}
+
+/* ── Güncellenmiş filtre ─────────────────────────────────────────── */
+function onStFilterChange() {
+  const val = document.getElementById('stFilter').value;
+  const tog = document.getElementById('changedToggle');
+  if (val === 'resolved') {
+    tog.classList.add('show');
+  } else {
+    tog.classList.remove('show');
+    // Çözüldü dışına geçince changedOnly sıfırla
+    changedOnly = false;
+    tog.classList.remove('active');
+  }
+  applyFilters();
+}
+
+function toggleChangedOnly() {
+  changedOnly = !changedOnly;
+  document.getElementById('changedToggle').classList.toggle('active', changedOnly);
+  applyFilters();
+}
+
+/* ── Filtreler ──────────────────────────────────────────────────── */
+function selectDevice(id, el) {
+  activeDevice = id;
+  document.querySelectorAll('.dev-item').forEach(e => e.classList.remove('active'));
+  el?.classList.add('active');
+  applyFilters();
+}
+
+function filterBySev(sev) {
+  document.getElementById('sevFilter').value = sev;
+  document.querySelectorAll('.stat-card').forEach((c,i) =>
+    c.classList.toggle('active', ['all','acil','critical','high','medium','low'][i] === sev));
+  applyFilters();
+}
+
+function applyFilters() {
+  loadFindings(
+    activeDevice,
+    document.getElementById('sevFilter').value,
+    document.getElementById('platFilter').value,
+    document.getElementById('stFilter').value,
+    document.getElementById('searchBox').value.trim(),
+    document.getElementById('checkFilter').value,
+    changedOnly,
+  );
+}
+
+/* ── Security Profiller ─────────────────────────────────────────── */
+async function loadSecurityProfiles() {
+  const scroll  = document.getElementById('secScroll');
+  const countEl = document.getElementById('secCount');
+  const plat    = document.getElementById('secPlatFilter').value;
+
+  scroll.innerHTML = `<div class="sec-empty"><div style="font-size:32px;margin-bottom:10px;animation:spin .9s linear infinite;display:inline-block">⟳</div><br>Yükleniyor...</div>`;
+
+  let url = '/api/security-profiles';
+  if (plat) url += `?platform=${plat}`;
+  const res = await api(url);
+  if (!res) {
+    scroll.innerHTML = `<div class="sec-empty">⚠️ Yüklenemedi</div>`;
+    return;
+  }
+  const data = await res.json();
+  renderSecurityProfiles(data, scroll, countEl);
+}
+
+function renderSecurityProfiles(data, scroll, countEl) {
+  const byCustomer     = data.by_customer     || {};
+  const hasAllCustomers = data.has_all_customers || [];
+  const entries        = Object.entries(byCustomer);
+
+  countEl.textContent = `${entries.length} müşteri`;
+
+  if (!entries.length) {
+    scroll.innerHTML = `<div class="sec-empty"><div style="font-size:36px;margin-bottom:10px">🔒</div>Henüz tarama verisi yok</div>`;
+    return;
+  }
+
+  // 1. Tümünü Kullananlar bölümü
+  const allUsersEntries = entries.filter(([c]) => hasAllCustomers.includes(c));
+  // 2. Diğerleri — önem sırasına göre (has_all sayısına göre azalan)
+  const otherEntries   = entries
+    .filter(([c]) => !hasAllCustomers.includes(c))
+    .sort(([,a],[,b]) => (b.has_av+b.has_webfilter+b.has_filefilter+b.has_ips) -
+                         (a.has_av+a.has_webfilter+a.has_filefilter+a.has_ips));
+
+  let html = '';
+
+  if (allUsersEntries.length) {
+    html += `
+      <div class="sec-section">
+        <div class="sec-section-title">
+          ✅ Tümünü Kullananlar
+          <span class="count-chip">${allUsersEntries.length}</span>
+          <span style="font-size:11px;font-weight:400;color:var(--muted)">(AV + WebFilter + FileFilter + IPS)</span>
+        </div>
+        <div class="sec-grid">
+          ${allUsersEntries.map(([c,d]) => secCard(c,d,true)).join('')}
+        </div>
+      </div>`;
+  }
+
+  html += `
+    <div class="sec-section">
+      <div class="sec-section-title">
+        🔒 Tüm Müşteriler
+        <span class="count-chip">${entries.length}</span>
+      </div>
+      <div class="sec-grid">
+        ${otherEntries.map(([c,d]) => secCard(c,d,false)).join('')}
+        ${allUsersEntries.map(([c,d]) => secCard(c,d,true)).join('')}
+      </div>
+    </div>`;
+
+  scroll.innerHTML = html;
+}
+
+function secCard(customer, d, hasAll) {
+  const platTag = d.platform
+    ? `<span class="sec-plat-tag ${d.platform==='fortimanager'?'fm':'pa'}">${d.platform==='fortimanager'?'FM':'PA'}</span>`
+    : '';
+  const allBadge = hasAll ? `<span class="sec-all-badge">✅ Tümünü Kullanan</span>` : '';
+
+  const chips = [
+    {key:'av',        icon:'🦠', label:'AV',         count: d.has_av,         active: d.has_av > 0},
+    {key:'webfilter', icon:'🌐', label:'WebFilter',  count: d.has_webfilter,  active: d.has_webfilter > 0},
+    {key:'filefilter',icon:'📄', label:'FileFilter', count: d.has_filefilter, active: d.has_filefilter > 0},
+    {key:'ips',       icon:'🛡️', label:'IPS',        count: d.has_ips,        active: d.has_ips > 0},
+  ].map(p => `
+    <div class="sec-pchip ${p.active?'active':''}">
+      <span class="pc-icon">${p.icon}</span>
+      <span class="pc-label">${p.label}</span>
+      <span class="pc-count">${p.count}</span>
+    </div>`).join('');
+
+  return `
+    <div class="sec-card ${hasAll?'has-all':''}">
+      <div class="sec-card-head">
+        <div>
+          <div class="sec-card-name">${esc(customer)}${platTag}</div>
+          <div class="sec-card-device">${esc(d.device_name||'')}</div>
+        </div>
+        ${allBadge}
+      </div>
+      <div class="sec-profile-row">${chips}</div>
+      <div class="sec-total">
+        Toplam kural: <strong>${d.total_rules}</strong>
+        ${d.has_all > 0 ? ` · Tüm profiller: <strong style="color:var(--low)">${d.has_all}</strong>` : ''}
+      </div>
+    </div>`;
+}
+
+/* ── Geçmiş Modal ────────────────────────────────────────────────── */
 async function openHistory() {
   document.getElementById('histOverlay').classList.add('open');
   const res = await api('/api/scan/history?limit=15');
@@ -911,7 +1290,7 @@ async function openHistory() {
     return `<tr>
       <td>${dot}${s.status==='completed'?'Tamamlandı':s.status==='running'?'Çalışıyor':'Başarısız'}</td>
       <td>${new Date(s.started_at).toLocaleString('tr-TR')}</td>
-      <td>${s.triggered_by}</td>
+      <td>${esc(s.triggered_by)}</td>
       <td>${s.total_devices}</td>
       <td>${s.total_rules}</td>
       <td><strong style="color:var(--critical)">${s.total_findings}</strong></td>
@@ -924,44 +1303,16 @@ async function openHistory() {
       <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Tarama geçmişi bulunamadı</td></tr>'}</tbody>
     </table>`;
 }
-
 function closeHistory(e) {
   if (!e || e.target === document.getElementById('histOverlay'))
     document.getElementById('histOverlay').classList.remove('open');
 }
-
-/* ── Filtreler ──────────────────────────────────────────────────── */
-function selectDevice(id, el) {
-  activeDevice = id;
-  document.querySelectorAll('.dev-item').forEach(e => e.classList.remove('active'));
-  el?.classList.add('active');
-  applyFilters();
-}
-
-function filterBySev(sev) {
-  document.getElementById('sevFilter').value = sev;
-  document.querySelectorAll('.stat-card').forEach((c,i)=>c.classList.toggle('active', ['all','acil','critical','high','medium','low'][i]===sev));
-  applyFilters();
-}
-
-function applyFilters() {
-  loadFindings(
-    activeDevice,
-    document.getElementById('sevFilter').value,
-    document.getElementById('platFilter').value,
-    document.getElementById('stFilter').value,
-    document.getElementById('searchBox').value.trim(),
-    document.getElementById('checkFilter').value,
-  );
-}
-
 
 /* ── Kullanıcı yönetimi ──────────────────────────────────────────── */
 async function openUsers() {
   document.getElementById('usersOverlay').classList.add('open');
   await renderUsers();
 }
-
 function closeUsers(e) {
   if (!e || e.target === document.getElementById('usersOverlay'))
     document.getElementById('usersOverlay').classList.remove('open');
@@ -972,16 +1323,15 @@ async function renderUsers() {
   const res = await api('/api/auth/users');
   if (!res) return;
   const users = await res.json();
-  const me = currentUser;
-  const rows = users.map(u => `
+  const me    = currentUser?.username;
+  const rows  = users.map(u => `
     <tr>
       <td><span class="active-dot ${u.is_active?'on':'off'}"></span>${esc(u.username)}</td>
       <td>${esc(u.full_name||'—')}</td>
       <td><span class="role-badge ${u.role}">${u.role==='admin'?'Admin':'Okuma'}</span></td>
       <td>${new Date(u.created_at).toLocaleDateString('tr-TR')}</td>
       <td style="display:flex;gap:5px;flex-wrap:wrap">
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px"
-          onclick="toggleUser(${u.id}, this)">
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="toggleUser(${u.id}, this)">
           ${u.is_active ? '🔴 Durdur' : '🟢 Aktif Et'}
         </button>
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--accent)"
@@ -989,9 +1339,7 @@ async function renderUsers() {
           ✏️ Düzenle
         </button>
         ${u.username !== me ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:#e74c3c"
-          onclick="deleteUser(${u.id},'${esc(u.username)}')">
-          🗑️ Sil
-        </button>` : ''}
+          onclick="deleteUser(${u.id},'${esc(u.username)}')">🗑️ Sil</button>` : ''}
       </td>
     </tr>`).join('');
   document.getElementById('usersBody').innerHTML = `
@@ -1004,20 +1352,10 @@ async function renderUsers() {
       <div class="user-err" id="userErr"></div>
       <div class="user-ok"  id="userOk"></div>
       <div class="user-grid">
-        <div class="user-field">
-          <label>Kullanıcı Adı *</label>
-          <input id="nuUsername" type="text" placeholder="kullanici"/>
-        </div>
-        <div class="user-field">
-          <label>Ad Soyad</label>
-          <input id="nuFullname" type="text" placeholder="Ad Soyad"/>
-        </div>
-        <div class="user-field">
-          <label>Şifre *</label>
-          <input id="nuPassword" type="password" placeholder="••••••••"/>
-        </div>
-        <div class="user-field">
-          <label>Rol *</label>
+        <div class="user-field"><label>Kullanıcı Adı *</label><input id="nuUsername" type="text" placeholder="kullanici"/></div>
+        <div class="user-field"><label>Ad Soyad</label><input id="nuFullname" type="text" placeholder="Ad Soyad"/></div>
+        <div class="user-field"><label>Şifre *</label><input id="nuPassword" type="password" placeholder="••••••••"/></div>
+        <div class="user-field"><label>Rol *</label>
           <select id="nuRole">
             <option value="readonly">Okuma (Read-only)</option>
             <option value="admin">Admin</option>
@@ -1035,47 +1373,42 @@ async function addUser() {
   const role      = document.getElementById('nuRole').value;
   const errEl = document.getElementById('userErr');
   const okEl  = document.getElementById('userOk');
-  errEl.style.display = 'none'; okEl.style.display = 'none';
+  errEl.style.display='none'; okEl.style.display='none';
   if (!username || !password) { errEl.textContent='Kullanıcı adı ve şifre zorunlu.'; errEl.style.display='block'; return; }
-  if (password.length < 6) { errEl.textContent='Şifre en az 6 karakter olmalı.'; errEl.style.display='block'; return; }
+  if (password.length < 6)    { errEl.textContent='Şifre en az 6 karakter olmalı.'; errEl.style.display='block'; return; }
   const res = await api('/api/auth/users', {method:'POST', body: JSON.stringify({username, full_name, password, role})});
   if (!res) { errEl.textContent='Sunucu hatası.'; errEl.style.display='block'; return; }
   if (!res.ok) {
     const d = await res.json().catch(()=>({}));
-    errEl.textContent = d.detail || 'Hata oluştu.'; errEl.style.display='block'; return;
+    errEl.textContent = d.detail||'Hata oluştu.'; errEl.style.display='block'; return;
   }
   okEl.textContent = `✅ "${username}" kullanıcısı oluşturuldu.`; okEl.style.display='block';
   await renderUsers();
 }
-
 async function toggleUser(userId, btn) {
   btn.disabled = true;
   const res = await api(`/api/auth/users/${userId}`, {method:'PATCH'});
   if (!res) { btn.disabled=false; return; }
   await renderUsers();
 }
-
 async function deleteUser(userId, username) {
   if (!confirm(`"${username}" kullanıcısını kalıcı olarak silmek istediğinizden emin misiniz?`)) return;
   const res = await api(`/api/auth/users/${userId}`, {method:'DELETE'});
   if (res) await renderUsers();
 }
-
 function openEditUser(id, username, fullName, role) {
-  document.getElementById('editUserId').value    = id;
-  document.getElementById('editUsername').value  = username;
-  document.getElementById('editFullname').value  = fullName;
-  document.getElementById('editRole').value      = role;
-  document.getElementById('editPassword').value  = '';
+  document.getElementById('editUserId').value   = id;
+  document.getElementById('editUsername').value = username;
+  document.getElementById('editFullname').value = fullName;
+  document.getElementById('editRole').value     = role;
+  document.getElementById('editPassword').value = '';
   document.getElementById('editUserErr').style.display = 'none';
   document.getElementById('editUserOverlay').classList.add('open');
 }
-
 function closeEditUser(e) {
   if (!e || e.target === document.getElementById('editUserOverlay'))
     document.getElementById('editUserOverlay').classList.remove('open');
 }
-
 async function saveEditUser() {
   const id        = document.getElementById('editUserId').value;
   const full_name = document.getElementById('editFullname').value.trim();
@@ -1084,8 +1417,7 @@ async function saveEditUser() {
   const errEl     = document.getElementById('editUserErr');
   errEl.style.display = 'none';
   if (password && password.length < 6) {
-    errEl.textContent = 'Yeni şifre en az 6 karakter olmalı.';
-    errEl.style.display = 'block'; return;
+    errEl.textContent = 'Yeni şifre en az 6 karakter olmalı.'; errEl.style.display='block'; return;
   }
   const body = {full_name, role};
   if (password) body.password = password;
@@ -1112,45 +1444,5 @@ if (token && currentUser) {
   setTimeout(() => document.getElementById('inputUser').focus(), 100);
 }
 </script>
-
-<!-- ── Kullanıcı Düzenleme Modal ── -->
-<div class="overlay" id="editUserOverlay" onclick="closeEditUser(event)">
-  <div class="modal" style="max-width:400px" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <span class="modal-title">✏️ Kullanıcıyı Düzenle</span>
-      <button class="modal-close" onclick="closeEditUser()">✕</button>
-    </div>
-    <div class="modal-body" style="padding:16px 20px">
-      <input type="hidden" id="editUserId">
-      <div class="user-err" id="editUserErr"></div>
-      <div class="user-grid">
-        <div class="user-field" style="grid-column:1/-1">
-          <label>Kullanıcı Adı</label>
-          <input id="editUsername" type="text" readonly style="opacity:.6;cursor:not-allowed">
-        </div>
-        <div class="user-field">
-          <label>Ad Soyad</label>
-          <input id="editFullname" type="text" placeholder="Ad Soyad">
-        </div>
-        <div class="user-field">
-          <label>Rol</label>
-          <select id="editRole">
-            <option value="readonly">Okuma (Read-only)</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
-        <div class="user-field" style="grid-column:1/-1">
-          <label>Yeni Şifre <span style="color:var(--muted);font-weight:400">(boş = değiştirme)</span></label>
-          <input id="editPassword" type="password" placeholder="••••••••">
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-        <button class="btn btn-ghost" onclick="closeEditUser()">İptal</button>
-        <button class="btn btn-primary" onclick="saveEditUser()">💾 Kaydet</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 </body>
 </html>

@@ -48,8 +48,12 @@ def _migrate():
 
     migrations = [
         # (tablo, sütun, tanım)
-        ("scan_results", "device_label", "VARCHAR(200) DEFAULT ''"),
-        ("scan_results", "device_host",  "VARCHAR(100) DEFAULT ''"),
+        ("scan_results",     "device_label",     "VARCHAR(200) DEFAULT ''"),
+        ("scan_results",     "device_host",       "VARCHAR(100) DEFAULT ''"),
+        # FindingStatus — çözüldü değişiklik takibi
+        ("finding_statuses", "rule_snapshot",     "TEXT"),
+        ("finding_statuses", "is_rule_changed",   "BOOLEAN DEFAULT 0"),
+        ("finding_statuses", "rule_changed_at",   "DATETIME"),
     ]
 
     with engine.connect() as conn:

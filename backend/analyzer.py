@@ -35,8 +35,17 @@ FM_LOG_DISABLED = {"disable", "0", "none"}
 # Geniş subnet prefix'leri (risky)
 BROAD_PREFIXES = {"/8", "/9", "/10", "/11", "/12", "/13", "/14", "/15", "/16"}
 
-# Palo Alto "dış zone" isimleri (Untrust eşdeğerleri)
-PA_UNTRUST_ZONES = {"untrust", "outside", "wan", "internet", "external", "l3-untrust", "zone_untrust", "dmz-untrust"}
+# Palo Alto untrust zone adları (harfe duyarsız karşılaştırma)
+PA_UNTRUST_ZONES = {
+    "untrust", "outside", "wan", "internet", "external",
+    "l3-untrust", "zone_untrust", "dmz-untrust",
+}
+
+# Palo Alto trust/iç ağ zone adları
+PA_TRUST_ZONES = {
+    "trust", "inside", "internal", "lan", "intranet",
+    "l3-trust", "zone_trust", "users", "servers",
+}
 
 
 def _finding(platform, device_name, customer, rule_id, rule_name,
@@ -97,10 +106,11 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
         src = pol.get("srcaddr", [])
         dst = pol.get("dstaddr", [])
         services = pol.get("service", [])
-        action = str(pol.get("action", "deny")).lower()
-        log = str(pol.get("logtraffic", "enable")).lower()
-        status = str(pol.get("status", "enable")).lower()
+        action = pol.get("action", "deny").lower()
+        log = pol.get("logtraffic", "enable").lower()
+        status = pol.get("status", "enable").lower()
         comments = pol.get("comments", "")
+        sec_profiles = pol.get("security_profiles", {})
 
         details = {
             "Kaynak Adres": ", ".join(src),
@@ -112,29 +122,11 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
             "Açıklama": comments or "(yok)",
         }
 
-        src_any = _fm_is_any(src)
-        dst_any = _fm_is_any(dst)
-        svc_any = ("ALL" in [s.upper() for s in services] or _fm_is_any(services))
-
-        # 0. ACİL: Kaynak=Any + Hedef=Any (tüm adreslere açık)
-        if action == "accept" and src_any and dst_any:
-            findings.append(_finding(
-                Platform.FORTIMANAGER, device_name, customer, pid, pname,
-                Severity.ACIL,
-                "Kaynak ve Hedef: Any Kuralı",
-                "Hem kaynak hem hedef 'any/all' olarak tanımlanmış. "
-                "İnternet dahil herhangi bir kaynaktan herhangi bir hedefe trafik izni veriliyor. "
-                "Bu kural ağı tamamen açık hale getiriyor.",
-                "Kaynak ve hedef adres alanlarını zorunlu IP blokları veya adres nesneleriyle sınırlandırın. "
-                "Gereksinim yoksa kuralı silin.",
-                details,
-            ))
-
-        # 1. Any-Any-Any: CRITICAL (src+dst+svc hepsi any — ayrı kayıt olarak da göster)
+        # 1. Any-Any-Any: CRITICAL
         if (action == "accept"
-                and src_any
-                and dst_any
-                and svc_any):
+                and _fm_is_any(src)
+                and _fm_is_any(dst)
+                and ("ALL" in [s.upper() for s in services] or _fm_is_any(services))):
             findings.append(_finding(
                 Platform.FORTIMANAGER, device_name, customer, pid, pname,
                 Severity.CRITICAL,
@@ -146,8 +138,11 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
                 details,
             ))
 
-        # 1b. Kaynak=Any (ama any-any değil): HIGH
-        if action == "accept" and src_any and not dst_any:
+        # 1b. Kaynak=Any (ama any-any-any değil): HIGH
+        src_any = _fm_is_any(src)
+        dst_any = _fm_is_any(dst)
+        svc_any = ("ALL" in [s.upper() for s in services] or _fm_is_any(services))
+        if action == "accept" and src_any and not (dst_any and svc_any):
             findings.append(_finding(
                 Platform.FORTIMANAGER, device_name, customer, pid, pname,
                 Severity.HIGH,
@@ -319,14 +314,6 @@ def _pa_is_any(member_list: List[str]) -> bool:
     return any(m in PA_ANY_ADDRS for m in member_list)
 
 
-def _pa_zone_is_any(zone_list: List[str]) -> bool:
-    return any(z.lower() in PA_ANY_ADDRS for z in zone_list)
-
-
-def _pa_zone_is_untrust(zone_list: List[str]) -> bool:
-    return any(z.lower() in PA_UNTRUST_ZONES for z in zone_list)
-
-
 def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
     device_name = vsys["name"]
     customer = vsys["customer"]
@@ -346,6 +333,7 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
         description = rule.get("description", "")
         from_zones = rule.get("from_zones", ["any"])
         to_zones = rule.get("to_zones", ["any"])
+        sec_profiles = rule.get("security_profiles", {})
 
         details = {
             "Kaynak Zone": ", ".join(from_zones),
@@ -360,72 +348,63 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
             "Açıklama": description or "(yok)",
         }
 
-        # Önceden hesapla
-        pa_src_any     = _pa_is_any(sources)
-        pa_dst_any     = _pa_is_any(destinations)
-        pa_app_any     = _pa_is_any(applications)
-        pa_svc_any     = any(s.lower() == "any" for s in services)
-        zone_src_any   = _pa_zone_is_any(from_zones)
-        zone_dst_any   = _pa_zone_is_any(to_zones)
-        zone_is_untrust = _pa_zone_is_untrust(from_zones)
+        # --- Zone hesaplamaları ---
+        zone_is_untrust = any(z.lower() in PA_UNTRUST_ZONES for z in from_zones)
+        zone_dst_is_trust = any(z.lower() in PA_TRUST_ZONES for z in to_zones)
+        zone_src_any = any(z.lower() == "any" for z in from_zones)
 
-        # ── ACİL KONTROLLER ──────────────────────────────────────────────
+        pa_src_any = _pa_is_any(sources)
+        pa_dst_any = _pa_is_any(destinations)
+        pa_app_any = _pa_is_any(applications)
+        pa_svc_any = any(s.lower() == "any" for s in services)
 
-        # A1. Source Zone=Any + Destination Zone=Any
-        if action == "allow" and zone_src_any and zone_dst_any:
+        # --- Webfilter kontrolü ---
+        wf = str(sec_profiles.get("webfilter", "") or "").strip()
+        grp = str(sec_profiles.get("group", "") or "").strip()
+        has_webfilter = bool(wf or grp)
+
+        # A5: ACİL — (Untrust zone VEYA zone=any) VE kaynak=any VE servis=any
+        if action == "allow" and (zone_is_untrust or zone_src_any) and pa_src_any and pa_svc_any:
             findings.append(_finding(
                 Platform.PALOALTO, device_name, customer, rname, rname,
                 Severity.ACIL,
-                "Kaynak ve Hedef Zone: Any Kuralı",
-                "Hem kaynak hem hedef zone 'any' olarak tanımlanmış. "
-                "Tüm zone'lar arasındaki trafik bu kural üzerinden geçebilir; "
-                "segment izolasyonu tamamen ortadan kalkıyor.",
-                "Kaynak ve hedef zone alanlarını belirli güvenlik bölgeleriyle sınırlandırın. "
-                "Zone'lar arası trafiği en az ayrıcalık prensibine göre tanımlayın.",
+                "Untrust/Any Zone + Kaynak=Any + Servis=Any",
+                "Dış zone (Untrust) veya zone=any kaynaktan herhangi bir IP'ye tüm servislere izin "
+                "veriliyor. İnternet kaynaklı her türlü saldırı bu kural üzerinden geçebilir.",
+                "Zone, kaynak IP ve servis alanlarını kısıtlayın. "
+                "Untrust zone için hiçbir zaman kaynak=any ve servis=any birlikteliğine izin vermeyin.",
                 details,
             ))
 
-        # A2. Source Zone=Any + Service=Any
-        if action == "allow" and zone_src_any and pa_svc_any:
+        # A6: ACİL — Untrust→Trust ve Web Filter YOK
+        if action == "allow" and zone_is_untrust and zone_dst_is_trust and not has_webfilter:
             findings.append(_finding(
                 Platform.PALOALTO, device_name, customer, rname, rname,
                 Severity.ACIL,
-                "Kaynak Zone Any + Tüm Servisler",
-                "Kaynak zone 'any' ve servis 'any' olarak tanımlanmış. "
-                "Hangi zone'dan gelirse gelsin tüm protokol ve portlar izin alıyor; "
-                "saldırı yüzeyini maksimum düzeyde genişletiyor.",
-                "Kaynak zone'u belirli bir güvenlik bölgesiyle, servis alanını zorunlu portlarla sınırlandırın.",
+                "Untrust→Trust: Web Filter Eksik",
+                "İnternet (Untrust) bölgesinden iç ağa (Trust) gelen trafiğe Web Filter profili "
+                "olmadan izin veriliyor. Zararlı URL, kimlik avı ve kötü amaçlı içerik "
+                "iç ağa ulaşabilir.",
+                "Bu kural için mutlaka bir URL Filtering (Web Filter) güvenlik profili atayın. "
+                "Profil grubu kullanıyorsanız grupta URL Filtering bulunduğundan emin olun.",
                 details,
             ))
 
-        # A3. Source Zone=Any + Destination (adres) Spesifik
-        if action == "allow" and zone_src_any and not pa_dst_any:
-            findings.append(_finding(
-                Platform.PALOALTO, device_name, customer, rname, rname,
-                Severity.ACIL,
-                "Kaynak Zone Any + Hedef Spesifik",
-                "Kaynak zone 'any' olarak tanımlanmış; hedef adres belirli olsa da "
-                "herhangi bir zone'dan (internet dahil) hedef sisteme erişim mümkün. "
-                "İç kaynaklar dışarıdan doğrudan erişilebilir hale geliyor.",
-                "Kaynak zone alanını yalnızca yetkili iç zone veya yönetim bölgesiyle sınırlandırın.",
-                details,
-            ))
-
-        # A4. Untrust zone + Service=Any (önceki check #0)
+        # A0 (mevcut): Untrust zone kaynaklı + servis=any (daha dar, örtüşebilir ama bırakıyoruz)
         if action == "allow" and zone_is_untrust and pa_svc_any:
-            findings.append(_finding(
-                Platform.PALOALTO, device_name, customer, rname, rname,
-                Severity.ACIL,
-                "source zone: Any Kuralı",
-                "Dış zone (Untrust) kaynaklı tüm servislere izin veriliyor. "
-                "İnternet kaynaklı her türlü protokol ve port hedef sistemlere erişebilir; "
-                "saldırı yüzeyini kritik düzeyde genişletmektedir.",
-                "Untrust zone için servis alanını yalnızca zorunlu portlarla (örn. HTTP/443, SMTP/25) "
-                "sınırlandırın. Genel any servis kuralı yerine spesifik uygulama veya port grupları tanımlayın.",
-                details,
-            ))
-
-        # ── KRİTİK KONTROLLER ────────────────────────────────────────────
+            # A5 zaten daha kapsamlı bir Acil oluşturdu ise burada tekrar oluşturmayalım
+            # Kaynak spesifik ama zone=untrust ve svc=any olan durumları yakala
+            if not pa_src_any:
+                findings.append(_finding(
+                    Platform.PALOALTO, device_name, customer, rname, rname,
+                    Severity.ACIL,
+                    "Untrust Zone: Tüm Servisler Açık",
+                    "Dış zone (Untrust) kaynaklı tüm servislere izin veriliyor. "
+                    "İnternet kaynaklı her türlü protokol ve port hedef sistemlere erişebilir.",
+                    "Untrust zone için servis alanını yalnızca zorunlu portlarla (örn. HTTPS/443) "
+                    "sınırlandırın.",
+                    details,
+                ))
 
         # 1. Any-Any-Any: CRITICAL
         if (action == "allow"
@@ -466,7 +445,7 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 details,
             ))
 
-        # 1e. Servis=Any (tüm portlar), Kaynak ve Hedef Spesifik: MEDIUM
+        # 1e. Servis=Any, Kaynak ve Hedef Spesifik: MEDIUM
         if action == "allow" and pa_svc_any and not pa_src_any and not pa_dst_any:
             findings.append(_finding(
                 Platform.PALOALTO, device_name, customer, rname, rname,
@@ -551,7 +530,7 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 details,
             ))
 
-        # 8. any kaynak (adres) + allow + hedef spesifik: HIGH
+        # 8. any kaynak + allow: HIGH
         if action == "allow" and pa_src_any and not pa_dst_any:
             findings.append(_finding(
                 Platform.PALOALTO, device_name, customer, rname, rname,

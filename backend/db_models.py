@@ -35,7 +35,8 @@ class ScanSession(Base):
     total_rules    = Column(Integer, default=0)
     total_findings = Column(Integer, default=0)
 
-    results = relationship("ScanResult", back_populates="session", cascade="all, delete-orphan")
+    results          = relationship("ScanResult", back_populates="session", cascade="all, delete-orphan")
+    security_profiles = relationship("SecurityProfileRecord", back_populates="session", cascade="all, delete-orphan")
 
 
 class ScanResult(Base):
@@ -69,7 +70,7 @@ class FindingRecord(Base):
     customer       = Column(String(200))
     rule_id        = Column(String(100))
     rule_name      = Column(String(200))
-    severity       = Column(String(20))               # critical | high | medium | low
+    severity       = Column(String(20))               # acil | critical | high | medium | low
     check_name     = Column(String(200))
     description    = Column(Text)
     recommendation = Column(Text)
@@ -86,11 +87,38 @@ class FindingStatus(Base):
     """
     __tablename__ = "finding_statuses"
 
-    id          = Column(Integer, primary_key=True, index=True)
-    fingerprint = Column(String(64), unique=True, index=True, nullable=False)
-    status      = Column(String(30), default="open")
+    id              = Column(Integer, primary_key=True, index=True)
+    fingerprint     = Column(String(64), unique=True, index=True, nullable=False)
+    status          = Column(String(30), default="open")
     # open | acknowledged | in_progress | resolved
-    comment     = Column(Text, nullable=True)
-    assigned_to = Column(String(100), nullable=True)
-    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    updated_by  = Column(String(100), nullable=True)
+    comment         = Column(Text, nullable=True)
+    assigned_to     = Column(String(100), nullable=True)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by      = Column(String(100), nullable=True)
+    # Change detection: rule state at time of resolution
+    rule_snapshot   = Column(JSON, nullable=True)     # rule_details at time of resolution
+    is_rule_changed = Column(Boolean, default=False)  # True if rule changed after resolution
+    rule_changed_at = Column(DateTime, nullable=True)  # When the change was detected
+
+
+class SecurityProfileRecord(Base):
+    """
+    Her kural için güvenlik profili bilgisi.
+    AV, Web Filter, File Filter, IPS profil varlığını saklar.
+    """
+    __tablename__ = "security_profiles"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    session_id     = Column(Integer, ForeignKey("scan_sessions.id"), nullable=False)
+    device_name    = Column(String(200))
+    customer       = Column(String(200))
+    platform       = Column(String(50))
+    rule_id        = Column(String(100))
+    rule_name      = Column(String(200))
+    has_av         = Column(Boolean, default=False)
+    has_webfilter  = Column(Boolean, default=False)
+    has_filefilter = Column(Boolean, default=False)
+    has_ips        = Column(Boolean, default=False)
+    profile_names  = Column(JSON, default=dict)  # {"av": "prof1", "webfilter": "prof2", ...}
+
+    session = relationship("ScanSession", back_populates="security_profiles")
