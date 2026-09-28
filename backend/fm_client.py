@@ -124,6 +124,11 @@ class FortiManagerClient:
         """
         FM API'sinden gelen `[{"name": "all"}]` formatındaki adresleri
         analyzer.py'nin beklediği `["all"]` string listesine çevirir.
+
+        FortiManager bazı alanları integer olarak döndürür:
+          action:     1=accept, 0=deny, 6=deny (drop)
+          logtraffic: 0=disable, 1=enable, 2=all, 3=utm
+          status:     0=disable, 1=enable
         """
         def extract_names(field) -> list[str]:
             if isinstance(field, list):
@@ -138,15 +143,37 @@ class FortiManagerClient:
                 return [field]
             return ["any"]
 
+        # action: integer → string
+        action_raw = pol.get("action", "deny")
+        if isinstance(action_raw, int):
+            action_str = "accept" if action_raw == 1 else "deny"
+        else:
+            action_str = str(action_raw).lower()
+
+        # logtraffic: integer → string
+        log_raw = pol.get("logtraffic", "disable")
+        if isinstance(log_raw, int):
+            log_map = {0: "disable", 1: "enable", 2: "all", 3: "utm"}
+            log_str = log_map.get(log_raw, "disable")
+        else:
+            log_str = str(log_raw).lower()
+
+        # status: integer → string
+        status_raw = pol.get("status", "enable")
+        if isinstance(status_raw, int):
+            status_str = "enable" if status_raw == 1 else "disable"
+        else:
+            status_str = str(status_raw).lower()
+
         return {
             "policyid":   pol.get("policyid", ""),
             "name":       pol.get("name", f"policy-{pol.get('policyid', '?')}"),
             "srcaddr":    extract_names(pol.get("srcaddr", ["all"])),
             "dstaddr":    extract_names(pol.get("dstaddr", ["all"])),
             "service":    extract_names(pol.get("service", ["ALL"])),
-            "action":     pol.get("action", "deny"),
-            "logtraffic": pol.get("logtraffic", "disable"),
-            "status":     pol.get("status", "enable"),
+            "action":     action_str,
+            "logtraffic": log_str,
+            "status":     status_str,
             "comments":   pol.get("comments", ""),
         }
 
