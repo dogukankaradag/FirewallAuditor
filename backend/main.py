@@ -372,6 +372,137 @@ def list_connectors(_: db_models.User = Depends(get_current_user)):
     return list_devices()
 
 
+# ── FortiManager Diagnostik endpoint'leri ────────────────────────────
+# Adım adım FM bağlantısını doğrulamak için kullanılır.
+# Yalnızca admin erişimi gerektirir.
+
+@app.get("/api/fm/adoms")
+def fm_list_adoms(_: db_models.User = Depends(require_admin)):
+    """
+    Adım 1 — FortiManager'dan yalnızca ADOM isimlerini çeker.
+    Bağlantı, kimlik doğrulama ve ADOM erişimi doğrulanır.
+    """
+    fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager" and not d.get("mock", True)]
+    if not fm_devices:
+        raise HTTPException(status_code=404, detail="mock=False ayarlı FortiManager cihazı bulunamadı.")
+
+    response = []
+    for dev in fm_devices:
+        client = FortiManagerClient(
+            host=dev["host"], port=dev["port"],
+            username=dev["username"], password=dev["password"],
+        )
+        try:
+            client.login()
+            adoms = client.get_adoms()
+            response.append({
+                "device_id":    dev["id"],
+                "device_label": dev["label"],
+                "device_host":  dev["host"],
+                "adom_count":   len(adoms),
+                "adoms":        adoms,
+            })
+        except Exception as exc:
+            response.append({
+                "device_id":    dev["id"],
+                "device_label": dev["label"],
+                "device_host":  dev["host"],
+                "error":        str(exc),
+            })
+        finally:
+            client.logout()
+
+    return response
+
+
+@app.get("/api/fm/packages")
+def fm_list_packages(_: db_models.User = Depends(require_admin)):
+    """
+    Adım 2 — Her ADOM'daki policy paket isimlerini listeler.
+    ADOM erişimi ve paket yapısı doğrulanır.
+    """
+    fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager" and not d.get("mock", True)]
+    if not fm_devices:
+        raise HTTPException(status_code=404, detail="mock=False ayarlı FortiManager cihazı bulunamadı.")
+
+    response = []
+    for dev in fm_devices:
+        client = FortiManagerClient(
+            host=dev["host"], port=dev["port"],
+            username=dev["username"], password=dev["password"],
+        )
+        try:
+            client.login()
+            adoms = client.get_adoms()
+            adom_details = []
+            for adom_name in adoms:
+                try:
+                    packages = client.get_policy_packages(adom_name)
+                    adom_details.append({
+                        "adom":          adom_name,
+                        "package_count": len(packages),
+                        "packages":      packages,
+                    })
+                except Exception as exc:
+                    adom_details.append({
+                        "adom":  adom_name,
+                        "error": str(exc),
+                    })
+            response.append({
+                "device_id":    dev["id"],
+                "device_label": dev["label"],
+                "adoms":        adom_details,
+            })
+        except Exception as exc:
+            response.append({
+                "device_id":    dev["id"],
+                "device_label": dev["label"],
+                "error":        str(exc),
+            })
+        finally:
+            client.logout()
+
+    return response
+
+
+@app.get("/api/fm/policies/{adom_name}/{package_name}")
+def fm_list_policies(
+    adom_name: str,
+    package_name: str,
+    limit: int = Query(default=10, ge=1, le=100),
+    _: db_models.User = Depends(require_admin),
+):
+    """
+    Adım 3 — Belirli bir ADOM + paket kombinasyonundan ilk N kuralı çeker.
+    Ham API verisini normalize edilmiş haliyle döndürür; analiz yapılmaz.
+    Örnek: GET /api/fm/policies/root/MyPackage?limit=5
+    """
+    fm_devices = [d for d in FIREWALL_DEVICES if d["type"] == "fortimanager" and not d.get("mock", True)]
+    if not fm_devices:
+        raise HTTPException(status_code=404, detail="mock=False ayarlı FortiManager cihazı bulunamadı.")
+
+    dev = fm_devices[0]
+    client = FortiManagerClient(
+        host=dev["host"], port=dev["port"],
+        username=dev["username"], password=dev["password"],
+    )
+    try:
+        client.login()
+        policies = client.get_policies(adom_name, package_name)
+        return {
+            "device_label":   dev["label"],
+            "adom":           adom_name,
+            "package":        package_name,
+            "total_fetched":  len(policies),
+            "showing":        min(limit, len(policies)),
+            "policies":       policies[:limit],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        client.logout()
+
+
 # ── Tarama endpoint'leri ──────────────────────────────────────────────
 
 _scan_lock = threading.Lock()
