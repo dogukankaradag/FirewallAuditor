@@ -102,13 +102,29 @@ class FortiManagerClient:
     # ── Policy paketleri ─────────────────────────────────────────────────
 
     def get_policy_packages(self, adom: str) -> list[str]:
-        """Bir ADOM'daki policy paket isimlerini döndürür."""
+        """
+        Bir ADOM'daki tüm policy paket isimlerini döndürür.
+        Klasör (folder) içindeki paketler de dahil edilir.
+        """
         data = self._rpc("get", [{"url": f"/pm/pkg/adom/{adom}"}])
+        return self._collect_packages(data if isinstance(data, list) else [])
+
+    def _collect_packages(self, items: list) -> list[str]:
+        """Düz liste + klasör içi paketleri özyinelemeli toplar."""
         pkgs = []
-        for item in (data if isinstance(data, list) else []):
-            if item.get("type") in ("pkg", None):
-                pkgs.append(item.get("name", ""))
-        return [p for p in pkgs if p]
+        for item in items:
+            item_type = item.get("type", "pkg")
+            name = item.get("name", "")
+            if not name:
+                continue
+            if item_type == "folder":
+                # Klasör içindeki subobject'leri de tara
+                sub = item.get("subobj", []) or []
+                pkgs.extend(self._collect_packages(sub))
+            else:
+                # "pkg" veya type alanı olmayan her şey kural paketidir
+                pkgs.append(name)
+        return pkgs
 
     def get_policies(self, adom: str, package: str) -> list[dict]:
         """Bir policy paketindeki kuralları çeker ve normalize eder."""
