@@ -89,12 +89,13 @@ class FortiManagerClient:
     # ── ADOM ─────────────────────────────────────────────────────────────
 
     def get_adoms(self) -> list[str]:
-        """Tüm ADOM isimlerini döndürür (root ve FortiAnalyzer hariç)."""
+        """Tüm ADOM isimlerini döndürür (yalnızca FortiAnalyzer yönetim ADOM'u hariç)."""
         data = self._rpc("get", [{"url": "/dvmdb/adom", "option": ["count", "object member"]}])
         adoms = []
         for item in (data if isinstance(data, list) else []):
             name = item.get("name", "")
-            if name and name.lower() not in ("root", "fortiananalyzer", "fortianalyzer"):
+            # Sadece FortiAnalyzer yönetim ADOM'unu atla; "root" dahil diğer tüm ADOM'ları çek
+            if name and name.lower() not in ("fortiananalyzer", "fortianalyzer"):
                 adoms.append(name)
         return adoms
 
