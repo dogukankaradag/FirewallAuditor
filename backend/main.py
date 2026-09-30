@@ -20,6 +20,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func, case as sql_case, or_
 
 from . import db_models
 from .analyzer import FirewallAnalyzer
@@ -724,31 +725,58 @@ def get_devices(
     if not sess:
         return []
 
-    results = (
-        db.query(db_models.ScanResult)
+    # Single aggregated query — avoids N+1 lazy-loading of r.findings
+    rows = (
+        db.query(
+            db_models.ScanResult.device_id,
+            db_models.ScanResult.device_name,
+            db_models.ScanResult.device_label,
+            db_models.ScanResult.device_host,
+            db_models.ScanResult.platform,
+            db_models.ScanResult.customer,
+            db_models.ScanResult.total_rules,
+            db_models.ScanResult.scanned_at,
+            db_models.FindingRecord.severity,
+            func.count(db_models.FindingRecord.id).label("cnt"),
+        )
+        .outerjoin(
+            db_models.FindingRecord,
+            db_models.FindingRecord.scan_result_id == db_models.ScanResult.id,
+        )
         .filter(db_models.ScanResult.session_id == sess.id)
+        .group_by(db_models.ScanResult.device_id, db_models.FindingRecord.severity)
         .all()
     )
 
-    devices = []
-    for r in results:
-        counts = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
-        for f in r.findings:
-            counts[f.severity] += 1
-        devices.append({
-            "id":            r.device_id,
-            "name":          r.device_name,
-            "label":         r.device_label or r.device_name,
-            "host":          r.device_host or "",
-            "platform":      r.platform,
-            "customer":      r.customer,
-            "total_rules":   r.total_rules,
-            "findings":      counts,
-            "total_findings": sum(counts.values()),
-            "last_scanned":  r.scanned_at.isoformat(),
-        })
+    device_map: dict = {}
+    for row in rows:
+        did = row.device_id
+        if did not in device_map:
+            device_map[did] = {
+                "id":            did,
+                "name":          row.device_name,
+                "label":         row.device_label or row.device_name,
+                "host":          row.device_host or "",
+                "platform":      row.platform,
+                "customer":      row.customer,
+                "total_rules":   row.total_rules or 0,
+                "findings":      {"acil":0,"critical":0,"high":0,"medium":0,"low":0},
+                "last_scanned":  row.scanned_at.isoformat(),
+            }
+        if row.severity:
+            device_map[did]["findings"][row.severity] = (
+                device_map[did]["findings"].get(row.severity, 0) + (row.cnt or 0)
+            )
 
-    devices.sort(key=lambda d: (-d["findings"].get("acil",0), -d["findings"]["critical"], -d["findings"]["high"], -d["total_findings"]))
+    devices = list(device_map.values())
+    for d in devices:
+        d["total_findings"] = sum(d["findings"].values())
+    devices.sort(key=lambda d: (
+        -d["findings"].get("acil", 0),
+        -d["findings"].get("critical", 0),
+        -d["findings"].get("high", 0),
+        -d["total_findings"],
+    ))
     return devices
 
 
@@ -795,12 +823,19 @@ def get_findings(
     if not sess:
         return {"total": 0, "page": page, "limit": limit, "findings": []}
 
+    # LEFT JOIN FindingStatus — tüm filtreleme ve sayfalama DB'de yapılır
     q = (
-        db.query(db_models.FindingRecord)
-        .join(db_models.ScanResult)
+        db.query(db_models.FindingRecord, db_models.FindingStatus, db_models.ScanResult)
+        .join(db_models.ScanResult,
+              db_models.FindingRecord.scan_result_id == db_models.ScanResult.id)
+        .outerjoin(
+            db_models.FindingStatus,
+            db_models.FindingRecord.fingerprint == db_models.FindingStatus.fingerprint,
+        )
         .filter(db_models.ScanResult.session_id == sess.id)
     )
 
+    # Filtreler — DB düzeyinde uygulanır
     if device_id and device_id != "all":
         q = q.filter(db_models.ScanResult.device_id == device_id)
     if severity and severity != "all":
@@ -818,23 +853,56 @@ def get_findings(
             | db_models.FindingRecord.device_name.ilike(s)
         )
 
-    all_recs = q.all()
+    # Durum filtresi — DB düzeyinde
+    if fstatus == "resolved":
+        q = q.filter(db_models.FindingStatus.status == "resolved")
+    elif fstatus == "open":
+        q = q.filter(or_(
+            db_models.FindingStatus.id == None,
+            db_models.FindingStatus.status == "open",
+        ))
+    elif fstatus in ("acknowledged", "in_progress"):
+        q = q.filter(db_models.FindingStatus.status == fstatus)
+    elif not session_id:
+        # Default (all, güncel görünüm): çözüldü bulgular hariç
+        q = q.filter(or_(
+            db_models.FindingStatus.id == None,
+            db_models.FindingStatus.status != "resolved",
+        ))
+    # session_id varsa (geçmiş oturum): tüm bulgular, durum filtresi yok
 
-    # Durum bilgisi ekle
-    fps = [r.fingerprint for r in all_recs]
-    status_map = _status_map(db, fps)
+    if changed_only:
+        q = q.filter(db_models.FindingStatus.is_rule_changed == True)
+
+    # Toplam sayı (sayfalama öncesi)
+    total = q.count()
+
+    # Önem sırasına göre DB'de sırala
+    sev_order_expr = sql_case(
+        (db_models.FindingRecord.severity == "acil",     0),
+        (db_models.FindingRecord.severity == "critical", 1),
+        (db_models.FindingRecord.severity == "high",     2),
+        (db_models.FindingRecord.severity == "medium",   3),
+        (db_models.FindingRecord.severity == "low",      4),
+        else_=99,
+    )
+    rows = (
+        q.order_by(sev_order_expr)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
 
     result_list = []
-    for r in all_recs:
-        st = status_map.get(r.fingerprint)
+    for (r, st, sr) in rows:
         result_list.append({
             "id":             r.id,
             "fingerprint":    r.fingerprint,
             "platform":       r.platform,
-            "device_id":      r.scan_result.device_id if r.scan_result else "",
+            "device_id":      sr.device_id,
             "device_name":    r.device_name,
-            "device_label":   r.scan_result.device_label if r.scan_result else "",
-            "device_host":    r.scan_result.device_host if r.scan_result else "",
+            "device_label":   sr.device_label,
+            "device_host":    sr.device_host,
             "customer":       r.customer,
             "rule_id":        r.rule_id,
             "rule_name":      r.rule_name,
@@ -848,29 +916,12 @@ def get_findings(
             "status_comment": st.comment if st else None,
             "assigned_to":    st.assigned_to if st else None,
             "status_updated_by": st.updated_by if st else None,
-            "status_updated_at": st.updated_at.isoformat() if st else None,
-            "is_rule_changed":   st.is_rule_changed if st else False,
+            "status_updated_at": st.updated_at.isoformat() if (st and st.updated_at) else None,
+            "is_rule_changed":   bool(st.is_rule_changed) if st else False,
             "rule_changed_at":   st.rule_changed_at.isoformat() if (st and st.rule_changed_at) else None,
         })
 
-    # Durum filtresi
-    if fstatus == "resolved":
-        result_list = [f for f in result_list if f["status"] == "resolved"]
-    elif fstatus and fstatus != "all":
-        result_list = [f for f in result_list if f["status"] == fstatus]
-    elif not session_id:
-        # "all" veya belirtilmemiş (geçmiş oturum değil): çözüldü bulgular hariç
-        result_list = [f for f in result_list if f["status"] != "resolved"]
-
-    # Yalnızca kural değişmiş çözülmüş bulgular
-    if changed_only:
-        result_list = [f for f in result_list if f.get("is_rule_changed")]
-
-    result_list.sort(key=lambda f: SEV_ORDER.get(f["severity"], 99))
-
-    total = len(result_list)
-    start = (page - 1) * limit
-    return {"total": total, "page": page, "limit": limit, "findings": result_list[start: start + limit]}
+    return {"total": total, "page": page, "limit": limit, "findings": result_list}
 
 
 @app.patch("/api/findings/{fingerprint}/status")

@@ -70,3 +70,22 @@ def _migrate():
                     )
                 )
                 conn.commit()
+
+        # Performans için ek indeksler (varsa atla)
+        sa = __import__("sqlalchemy")
+        indices = [
+            # Adı,                           DDL
+            ("ix_findings_scan_result_id",   "CREATE INDEX IF NOT EXISTS ix_findings_scan_result_id ON findings (scan_result_id)"),
+            ("ix_findings_severity",         "CREATE INDEX IF NOT EXISTS ix_findings_severity ON findings (severity)"),
+            ("ix_findings_platform",         "CREATE INDEX IF NOT EXISTS ix_findings_platform ON findings (platform)"),
+            ("ix_findings_check_name",       "CREATE INDEX IF NOT EXISTS ix_findings_check_name ON findings (check_name)"),
+            ("ix_scan_results_session_id",   "CREATE INDEX IF NOT EXISTS ix_scan_results_session_id ON scan_results (session_id)"),
+            ("ix_scan_results_device_id",    "CREATE INDEX IF NOT EXISTS ix_scan_results_device_id ON scan_results (device_id)"),
+            ("ix_findingstatus_status",      "CREATE INDEX IF NOT EXISTS ix_findingstatus_status ON finding_statuses (status)"),
+        ]
+        for _name, ddl in indices:
+            try:
+                conn.execute(sa.text(ddl))
+                conn.commit()
+            except Exception:
+                pass
