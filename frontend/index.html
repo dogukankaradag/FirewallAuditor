@@ -418,6 +418,11 @@ td{padding:9px 11px;vertical-align:middle}
     <div class="stat-card" onclick="filterBySev('low')">
       <div class="stat-label">🟢 Düşük</div><div class="stat-value low" id="statLow">—</div>
     </div>
+    <div class="stat-card" onclick="filterBySev('resolved')" title="Çözüldü olarak işaretlenen bulgular" style="cursor:pointer">
+      <div class="stat-label">✅ Çözüldü</div>
+      <div class="stat-value" style="color:var(--low)" id="statResolved">—</div>
+      <div id="statResolvedChanged" style="font-size:10px;color:var(--high);margin-top:2px"></div>
+    </div>
   </div>
 
   <div class="layout">
@@ -435,6 +440,12 @@ td{padding:9px 11px;vertical-align:middle}
 
       <!-- Bulgular paneli -->
       <div id="bulguPanel">
+        <div id="histViewBanner" style="display:none;background:rgba(99,102,241,.1);border:1px solid #6366f1;border-radius:8px;padding:8px 14px;margin-bottom:10px;align-items:center;gap:10px;font-size:13px;">
+          <span>📅</span>
+          <strong id="histViewDateInner" style="color:#818cf8"></strong>
+          <span style="color:var(--muted)">tarihli tarama görüntüleniyor</span>
+          <button class="btn btn-ghost" style="margin-left:auto;font-size:11px;padding:3px 8px" onclick="exitHistoricalView()">✕ Güncel Görünüme Dön</button>
+        </div>
         <div class="filters">
           <input class="search-box" id="searchBox" type="text" placeholder="🔍  Kural adı, müşteri, zafiyet ara..." oninput="applyFilters()"/>
           <select class="fsel" id="sevFilter" onchange="applyFilters()">
@@ -619,6 +630,8 @@ let activeDevice    = 'all';
 let currentFinding  = null;
 let currentStatus   = 'open';
 let changedOnly     = false;   // Güncellenmiş filtre
+let historicalSessionId   = null;
+let historicalSessionDate = null;
 let activeTab       = 'bulgular';
 
 const SEV_ICONS   = {acil:'🚨',critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
@@ -729,6 +742,9 @@ async function loadSummary() {
   document.getElementById('statHigh').textContent     = d.findings_by_severity?.high     ?? 0;
   document.getElementById('statMedium').textContent   = d.findings_by_severity?.medium   ?? 0;
   document.getElementById('statLow').textContent      = d.findings_by_severity?.low      ?? 0;
+  document.getElementById('statResolved').textContent = d.resolved_count ?? 0;
+  const rc = d.resolved_changed_count ?? 0;
+  document.getElementById('statResolvedChanged').textContent = rc > 0 ? `🔄 ${rc} güncellendi` : '';
 
   if (d.last_scan) {
     const dt = new Date(d.last_scan);
@@ -804,6 +820,7 @@ async function loadFindings(
   if (search)                           url += `&search=${encodeURIComponent(search)}`;
   if (checkName && checkName !== 'all') url += `&check_name=${encodeURIComponent(checkName)}`;
   if (_changedOnly)                     url += `&changed_only=true`;
+  if (historicalSessionId)              url += `&session_id=${historicalSessionId}`;
 
   const res = await api(url);
   if (!res) return;
@@ -811,6 +828,7 @@ async function loadFindings(
   allFindings = Array.isArray(data.findings) ? data.findings : [];
   renderFindings(allFindings);
   document.getElementById('findingCount').textContent = `${data.total ?? 0} bulgu`;
+  if (historicalSessionId) _updateStatsFromFindings();
 }
 
 async function populateCheckFilter() {
@@ -987,12 +1005,11 @@ function renderFindings(findings) {
     tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><div class="empty-icon">✅</div><div>Bu filtre için bulgu yok</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = findings.map((f,i) => {
+  function _findingRow(f, i) {
     const changedBadge = f.is_rule_changed
       ? `<span class="changed-badge">🔄 Kural Değişti</span>` : '';
-    const statusCell   = `<span class="st-pill ${f.status}">${STAT_ICONS[f.status]||''} ${STAT_LABELS[f.status]||f.status}</span>${changedBadge}`;
-    return `
-    <tr class="finding-row" onclick="openModal(${i})">
+    const statusCell = `<span class="st-pill ${f.status}">${STAT_ICONS[f.status]||''} ${STAT_LABELS[f.status]||f.status}</span>${changedBadge}`;
+    return `<tr class="finding-row" onclick="openModal(${i})">
       <td><span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span></td>
       <td>${statusCell}</td>
       <td><span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FM':'PA'}</span></td>
@@ -1007,7 +1024,34 @@ function renderFindings(findings) {
       </td>
       <td style="color:var(--text);font-weight:500">${esc(f.check_name)}</td>
     </tr>`;
-  }).join('');
+  }
+
+  // Çözüldü görünümünde: önce "Güncelleme Aldı" grubu, sonra normal çözüldü
+  const stVal = document.getElementById('stFilter')?.value;
+  if (stVal === 'resolved') {
+    const changed  = findings.filter(f => f.is_rule_changed);
+    const normal   = findings.filter(f => !f.is_rule_changed);
+    let html = '';
+    if (changed.length) {
+      html += `<tr><td colspan="6" style="padding:6px 10px 4px;background:rgba(230,126,34,.07);border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;font-weight:700;color:var(--high)">🔄 Çözüldü — Güncelleme Aldı</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:6px">${changed.length} kural çözüldükten sonra değişti</span>
+      </td></tr>`;
+      html += changed.map((f) => _findingRow(f, findings.indexOf(f))).join('');
+    }
+    if (normal.length) {
+      if (changed.length) {
+        html += `<tr><td colspan="6" style="padding:6px 10px 4px;background:rgba(39,174,96,.05);border-bottom:1px solid var(--border)">
+          <span style="font-size:12px;font-weight:700;color:var(--low)">✅ Çözüldü</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:6px">${normal.length} kural</span>
+        </td></tr>`;
+      }
+      html += normal.map((f) => _findingRow(f, findings.indexOf(f))).join('');
+    }
+    tbody.innerHTML = html;
+  } else {
+    tbody.innerHTML = findings.map((f,i) => _findingRow(f, i)).join('');
+  }
 }
 
 /* ── Modal ──────────────────────────────────────────────────────── */
@@ -1153,6 +1197,12 @@ function selectDevice(id, el) {
 }
 
 function filterBySev(sev) {
+  if (sev === 'resolved') {
+    document.getElementById('stFilter').value = 'resolved';
+    document.getElementById('sevFilter').value = 'all';
+    onStFilterChange();
+    return;
+  }
   document.getElementById('sevFilter').value = sev;
   document.querySelectorAll('.stat-card').forEach((c,i) =>
     c.classList.toggle('active', ['all','acil','critical','high','medium','low'][i] === sev));
@@ -1287,25 +1337,69 @@ async function openHistory() {
     const dur = s.finished_at
       ? Math.round((new Date(s.finished_at)-new Date(s.started_at))/1000) + 's'
       : '—';
+    const isViewing = s.id === historicalSessionId;
+    const dateStr   = new Date(s.started_at).toLocaleString('tr-TR');
+    const goBtn = s.status === 'completed'
+      ? `<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;${isViewing?'background:rgba(99,102,241,.2);border-color:#6366f1;':''}"
+           onclick="loadHistoricalSession(${s.id},'${dateStr}');closeHistory();">
+           ${isViewing ? '👁 Görüntüleniyor' : '📅 Geçmişe Dön'}</button>`
+      : '';
     return `<tr>
       <td>${dot}${s.status==='completed'?'Tamamlandı':s.status==='running'?'Çalışıyor':'Başarısız'}</td>
-      <td>${new Date(s.started_at).toLocaleString('tr-TR')}</td>
+      <td>${dateStr}</td>
       <td>${esc(s.triggered_by)}</td>
       <td>${s.total_devices}</td>
       <td>${s.total_rules}</td>
       <td><strong style="color:var(--critical)">${s.total_findings}</strong></td>
       <td>${dur}</td>
+      <td>${goBtn}</td>
     </tr>`;
   }).join('');
   document.getElementById('histBody').innerHTML = `
     <table class="hist-table">
-      <thead><tr><th>Durum</th><th>Başlangıç</th><th>Tetikleyen</th><th>Cihaz</th><th>Kural</th><th>Bulgu</th><th>Süre</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Tarama geçmişi bulunamadı</td></tr>'}</tbody>
+      <thead><tr><th>Durum</th><th>Başlangıç</th><th>Tetikleyen</th><th>Cihaz</th><th>Kural</th><th>Bulgu</th><th>Süre</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Tarama geçmişi bulunamadı</td></tr>'}</tbody>
     </table>`;
 }
 function closeHistory(e) {
   if (!e || e.target === document.getElementById('histOverlay'))
     document.getElementById('histOverlay').classList.remove('open');
+}
+
+async function loadHistoricalSession(sessionId, dateLabel) {
+  historicalSessionId   = sessionId;
+  historicalSessionDate = dateLabel;
+  const banner = document.getElementById('histViewBanner');
+  if (banner) { banner.style.display = 'flex'; }
+  const dateEl = document.getElementById('histViewDateInner');
+  if (dateEl) dateEl.textContent = dateLabel;
+  switchTab('bulgular');
+  await loadFindings();
+  _updateStatsFromFindings();
+}
+
+function exitHistoricalView() {
+  historicalSessionId   = null;
+  historicalSessionDate = null;
+  const banner = document.getElementById('histViewBanner');
+  if (banner) banner.style.display = 'none';
+  loadFindings();
+  loadSummary();
+}
+
+function _updateStatsFromFindings() {
+  if (!historicalSessionId) return;
+  const counts = {acil:0,critical:0,high:0,medium:0,low:0};
+  for (const f of allFindings) { if (counts[f.severity]!==undefined) counts[f.severity]++; }
+  document.getElementById('statTotal').textContent    = allFindings.length;
+  document.getElementById('statAcil').textContent     = counts.acil;
+  document.getElementById('statCritical').textContent = counts.critical;
+  document.getElementById('statHigh').textContent     = counts.high;
+  document.getElementById('statMedium').textContent   = counts.medium;
+  document.getElementById('statLow').textContent      = counts.low;
+  document.getElementById('statResolved').textContent = '—';
+  document.getElementById('statResolvedChanged').textContent = '';
+  document.getElementById('lastScan').textContent = `📅 Geçmiş: ${historicalSessionDate}`;
 }
 
 /* ── Kullanıcı yönetimi ──────────────────────────────────────────── */

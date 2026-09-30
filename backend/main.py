@@ -673,10 +673,15 @@ def get_summary(
     sev_counts  = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
     plat_counts = {"fortimanager": 0, "paloalto": 0}
     device_map: dict = {}
+    resolved_count = 0
+    resolved_changed_count = 0
 
     for f in findings:
         st = status_map.get(f.fingerprint)
         if st and st.status == "resolved":
+            resolved_count += 1
+            if st.is_rule_changed:
+                resolved_changed_count += 1
             continue   # Çözüldü bulgular özet sayaçlarına dahil edilmez
         sev_counts[f.severity]  = sev_counts.get(f.severity, 0) + 1
         plat_counts[f.platform] = plat_counts.get(f.platform, 0) + 1
@@ -705,6 +710,8 @@ def get_summary(
         "last_scan":            (sess.finished_at.isoformat() + "Z") if sess.finished_at else None,
         "session_id":           sess.id,
         "scan_running":         running is not None,
+        "resolved_count":       resolved_count,
+        "resolved_changed_count": resolved_changed_count,
     }
 
 
@@ -775,12 +782,16 @@ def get_findings(
     check_name: Optional[str] = Query(None),
     search:     Optional[str] = Query(None),
     changed_only: bool        = Query(False),   # Yalnızca kural değişmiş çözülmüş bulgular
+    session_id: Optional[int] = Query(None),   # Geçmiş oturum görünümü
     page:      int           = Query(1, ge=1),
     limit:     int           = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
     _: db_models.User = Depends(get_current_user),
 ):
-    sess = _latest_session(db)
+    if session_id:
+        sess = db.query(db_models.ScanSession).filter(db_models.ScanSession.id == session_id).first()
+    else:
+        sess = _latest_session(db)
     if not sess:
         return {"total": 0, "page": page, "limit": limit, "findings": []}
 
@@ -843,8 +854,13 @@ def get_findings(
         })
 
     # Durum filtresi
-    if fstatus and fstatus != "all":
+    if fstatus == "resolved":
+        result_list = [f for f in result_list if f["status"] == "resolved"]
+    elif fstatus and fstatus != "all":
         result_list = [f for f in result_list if f["status"] == fstatus]
+    elif not session_id:
+        # "all" veya belirtilmemiş (geçmiş oturum değil): çözüldü bulgular hariç
+        result_list = [f for f in result_list if f["status"] != "resolved"]
 
     # Yalnızca kural değişmiş çözülmüş bulgular
     if changed_only:
