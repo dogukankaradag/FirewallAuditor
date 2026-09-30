@@ -376,17 +376,21 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 details,
             ))
 
-        # A6: ACİL — Untrust→Trust ve Web Filter YOK
-        if action == "allow" and zone_is_untrust and zone_dst_is_trust and not has_webfilter:
+        # A6: YÜKSEK — Untrust→Trust ve Web Filter UYGULANMIŞ
+        # Untrust→Trust yönündeki kurallara Web Filter atanması false-positive engellemelere
+        # yol açabilir; meşru internet erişimleri hatalı biçimde kesilebilir.
+        if action == "allow" and zone_is_untrust and zone_dst_is_trust and has_webfilter:
+            wf_label = wf if wf else f"(grup: {grp})"
             findings.append(_finding(
                 Platform.PALOALTO, device_name, customer, rname, rname,
-                Severity.ACIL,
-                "Untrust→Trust: Web Filter Eksik",
-                "İnternet (Untrust) bölgesinden iç ağa (Trust) gelen trafiğe Web Filter profili "
-                "olmadan izin veriliyor. Zararlı URL, kimlik avı ve kötü amaçlı içerik "
-                "iç ağa ulaşabilir.",
-                "Bu kural için mutlaka bir URL Filtering (Web Filter) güvenlik profili atayın. "
-                "Profil grubu kullanıyorsanız grupta URL Filtering bulunduğundan emin olun.",
+                Severity.HIGH,
+                "Untrust→Trust: Web Filter Uygulanmış",
+                f"İnternet (Untrust) → İç Ağ (Trust) yönlü bu kurala '{wf_label}' Web Filter profili "
+                "atanmış. Bu yöndeki trafiğe Web Filter uygulanması false-positive engellemelere neden "
+                "olabilir; meşru internet erişimleri hatalı biçimde kesilebilir.",
+                "Untrust→Trust yönlü kurallarda Web Filter profilini kaldırın ya da kural amacını "
+                "gözden geçirin. İçerik filtrelemesi genellikle Trust→Untrust (iç→dış) yönlü "
+                "kurallara uygulanmalıdır.",
                 details,
             ))
 
