@@ -531,7 +531,7 @@ td{padding:9px 11px;vertical-align:middle}
 
 
 <!-- ── Ayarlar modal ── -->
-<div class="modal-overlay" id="settingsOverlay" onclick="closeSettings()" style="display:none">
+<div class="overlay" id="settingsOverlay" onclick="closeSettings(event)">
   <div class="modal" style="width:680px;max-width:96vw" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <div class="modal-title">⚙️ Sistem Ayarları</div>
@@ -1544,12 +1544,13 @@ function switchSettingsTab(tab) {
 }
 
 async function openSettings() {
-  document.getElementById('settingsOverlay').style.display = 'flex';
+  document.getElementById('settingsOverlay').classList.add('open');
   await loadSettingsForm();
 }
 
-function closeSettings() {
-  document.getElementById('settingsOverlay').style.display = 'none';
+function closeSettings(e) {
+  if (!e || e.target === document.getElementById('settingsOverlay'))
+    document.getElementById('settingsOverlay').classList.remove('open');
 }
 
 async function loadSettingsForm() {
