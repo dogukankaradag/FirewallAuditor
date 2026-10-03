@@ -210,6 +210,9 @@ td{padding:9px 11px;vertical-align:middle}
 .modal-title{font-size:16px;font-weight:700;line-height:1.3;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .modal-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 6px}
 .modal-close:hover{color:var(--text)}
+.settings-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-size:13px;padding:8px 14px;font-weight:600;transition:color .15s,border-color .15s;margin-bottom:-1px}
+.settings-tab:hover{color:var(--text)}
+.settings-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .dsec{margin-bottom:16px}
 .dlabel{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:5px}
 .dtext{color:var(--text);line-height:1.6;font-size:13px}
@@ -387,6 +390,7 @@ td{padding:9px 11px;vertical-align:middle}
     </div>
     <div class="header-right">
       <span class="last-scan" id="lastScan">—</span>
+      <button class="btn btn-ghost" id="settingsBtn" onclick="openSettings()" style="display:none">⚙️ Ayarlar</button>
       <button class="btn btn-ghost" id="usersBtn" onclick="openUsers()" style="display:none">👥 Kullanıcılar</button>
       <button class="btn btn-ghost" id="histBtn" onclick="openHistory()">📋 Geçmiş</button>
       <button class="btn btn-success" onclick="exportExcel()">⬇ Excel</button>
@@ -523,6 +527,115 @@ td{padding:9px 11px;vertical-align:middle}
     <div class="ban-sub" id="banSub">Cihazlara bağlanılıyor, lütfen bekleyin</div>
   </div>
   <span id="scanTimer" style="font-size:13px;font-weight:700;color:var(--accent);font-family:monospace">00:00</span>
+</div>
+
+
+<!-- ── Ayarlar modal ── -->
+<div class="modal-overlay" id="settingsOverlay" onclick="closeSettings()" style="display:none">
+  <div class="modal" style="width:680px;max-width:96vw" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-title">⚙️ Sistem Ayarları</div>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+
+    <!-- Sekmeler -->
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
+      <button id="stab-sched" class="settings-tab active" onclick="switchSettingsTab('sched')">📅 Zamanlayıcı</button>
+      <button id="stab-mail"  class="settings-tab"        onclick="switchSettingsTab('mail')">✉️ Mail Bildirimi</button>
+    </div>
+
+    <!-- Zamanlayıcı sekmesi -->
+    <div id="spanel-sched">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="sSchedEnabled" style="accent-color:var(--accent);width:16px;height:16px">
+          Günlük otomatik tarama etkin
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+        <div>
+          <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:4px">Saat (GMT+3 İstanbul)</label>
+          <input type="number" id="sSchedHour" min="0" max="23" style="width:80px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
+        </div>
+        <div style="font-size:22px;color:var(--muted);margin-top:18px">:</div>
+        <div>
+          <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:4px">Dakika</label>
+          <input type="number" id="sSchedMin" min="0" max="59" style="width:80px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
+        </div>
+      </div>
+      <div id="sSchedNextRun" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+    </div>
+
+    <!-- Mail sekmesi -->
+    <div id="spanel-mail" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="sMailEnabled" style="accent-color:var(--accent);width:16px;height:16px">
+          Acil bulgu mail bildirimi etkin
+        </label>
+      </div>
+
+      <!-- SMTP -->
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">SMTP Sunucusu</div>
+      <div style="display:grid;grid-template-columns:1fr 100px 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Sunucu (Host)</label>
+          <input type="text" id="sSmtpHost" placeholder="smtp.gmail.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Port</label>
+          <input type="number" id="sSmtpPort" placeholder="587" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="sSmtpTls" style="accent-color:var(--accent)"> STARTTLS
+          </label>
+          <div style="font-size:11px;color:var(--muted);padding-top:2px">Port 587 için açık, 465 için kapalı bırakın</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Kullanıcı adı</label>
+          <input type="text" id="sSmtpUser" placeholder="user@example.com" autocomplete="off" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Şifre</label>
+          <input type="password" id="sSmtpPass" placeholder="••••••••" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+        </div>
+      </div>
+
+      <!-- Gönderen -->
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">Mail Detayları</div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gönderen (From)</label>
+        <input type="text" id="sMailFrom" placeholder="firewallaudit@example.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Alıcılar — To <span style="color:var(--muted);font-weight:400">(virgülle ayır)</span></label>
+        <input type="text" id="sMailTo" placeholder="noc@example.com, soc@example.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">CC <span style="color:var(--muted);font-weight:400">(opsiyonel, virgülle ayır)</span></label>
+        <input type="text" id="sMailCc" placeholder="manager@example.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Mail Konusu (Subject)</label>
+        <input type="text" id="sMailSubject" placeholder="🚨 FirewallAudit — Acil Bulgular Raporu" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+      </div>
+
+      <!-- Test butonu -->
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+        <button class="btn btn-ghost" onclick="testMail()" style="white-space:nowrap">📨 Test Maili Gönder</button>
+        <span id="sMailTestResult" style="font-size:13px;color:var(--muted)">Son taramanın Acil bulgularını gönderir</span>
+      </div>
+    </div>
+
+    <!-- Alt butonlar -->
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost" onclick="closeSettings()">İptal</button>
+      <button class="btn btn-primary" onclick="saveSettings()">💾 Kaydet</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Kullanıcı yönetim modal ── -->
@@ -712,8 +825,9 @@ function showApp() {
   rb.textContent = isAdmin ? 'Admin' : 'Okuma';
   rb.className   = 'role-badge ' + (isAdmin ? 'admin' : 'readonly');
 
-  document.getElementById('scanBtn').style.display  = isAdmin ? 'flex' : 'none';
-  document.getElementById('usersBtn').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('scanBtn').style.display     = isAdmin ? 'flex' : 'none';
+  document.getElementById('usersBtn').style.display    = isAdmin ? 'flex' : 'none';
+  document.getElementById('settingsBtn').style.display = isAdmin ? 'flex' : 'none';
 
   init();
 }
@@ -1411,6 +1525,125 @@ function _updateStatsFromFindings() {
 }
 
 /* ── Kullanıcı yönetimi ──────────────────────────────────────────── */
+
+function showToast(msg, type) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;color:#fff;background:${type==='success'?'#22c55e':'#ef4444'};box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .4s`;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(), 400); }, 2800);
+}
+
+// ── Sistem Ayarları ────────────────────────────────────────────────
+
+function switchSettingsTab(tab) {
+  ['sched','mail'].forEach(t => {
+    document.getElementById('stab-'+t).classList.toggle('active', t===tab);
+    document.getElementById('spanel-'+t).style.display = t===tab ? '' : 'none';
+  });
+}
+
+async function openSettings() {
+  document.getElementById('settingsOverlay').style.display = 'flex';
+  await loadSettingsForm();
+}
+
+function closeSettings() {
+  document.getElementById('settingsOverlay').style.display = 'none';
+}
+
+async function loadSettingsForm() {
+  try {
+    const r = await apiFetch('/api/settings');
+    if (!r.ok) return;
+    const s = await r.json();
+
+    // Zamanlayıcı
+    document.getElementById('sSchedEnabled').checked = (s.scheduler_enabled ?? '1') === '1';
+    document.getElementById('sSchedHour').value   = s.scheduler_hour   ?? '2';
+    document.getElementById('sSchedMin').value    = s.scheduler_minute ?? '0';
+
+    // Next run
+    try {
+      const sr = await apiFetch('/api/scheduler');
+      if (sr.ok) {
+        const sched = await sr.json();
+        const el = document.getElementById('sSchedNextRun');
+        if (sched.next_run) {
+          const d = new Date(sched.next_run);
+          el.textContent = '⏰ Sonraki çalışma: ' + d.toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
+        } else {
+          el.textContent = sched.enabled ? '' : '⏸ Zamanlayıcı duraklatılmış';
+        }
+      }
+    } catch(e) {}
+
+    // Mail
+    document.getElementById('sMailEnabled').checked  = (s.mail_enabled ?? '0') === '1';
+    document.getElementById('sSmtpHost').value        = s.mail_smtp_host   ?? '';
+    document.getElementById('sSmtpPort').value        = s.mail_smtp_port   ?? '587';
+    document.getElementById('sSmtpTls').checked       = (s.mail_smtp_tls   ?? '1') === '1';
+    document.getElementById('sSmtpUser').value        = s.mail_smtp_user   ?? '';
+    document.getElementById('sSmtpPass').value        = (s.mail_smtp_pass  && s.mail_smtp_pass !== '') ? '••••••••' : '';
+    document.getElementById('sMailFrom').value        = s.mail_from        ?? '';
+    document.getElementById('sMailTo').value          = s.mail_to          ?? '';
+    document.getElementById('sMailCc').value          = s.mail_cc          ?? '';
+    document.getElementById('sMailSubject').value     = s.mail_subject     ?? '';
+  } catch(e) { console.error('Ayarlar yüklenemedi', e); }
+}
+
+async function saveSettings() {
+  const pass = document.getElementById('sSmtpPass').value;
+  const body = {
+    scheduler_enabled : document.getElementById('sSchedEnabled').checked ? '1' : '0',
+    scheduler_hour    : document.getElementById('sSchedHour').value,
+    scheduler_minute  : document.getElementById('sSchedMin').value,
+    mail_enabled      : document.getElementById('sMailEnabled').checked  ? '1' : '0',
+    mail_smtp_host    : document.getElementById('sSmtpHost').value,
+    mail_smtp_port    : document.getElementById('sSmtpPort').value,
+    mail_smtp_tls     : document.getElementById('sSmtpTls').checked      ? '1' : '0',
+    mail_smtp_user    : document.getElementById('sSmtpUser').value,
+    mail_smtp_pass    : pass,   // "••••••••" gelirse backend korur
+    mail_from         : document.getElementById('sMailFrom').value,
+    mail_to           : document.getElementById('sMailTo').value,
+    mail_cc           : document.getElementById('sMailCc').value,
+    mail_subject      : document.getElementById('sMailSubject').value,
+  };
+  const r = await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if (r.ok) {
+    const d = await r.json();
+    const next = d.scheduler?.next_run;
+    const el = document.getElementById('sSchedNextRun');
+    if (next) {
+      const nd = new Date(next);
+      el.textContent = '⏰ Sonraki çalışma: ' + nd.toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
+    }
+    closeSettings();
+    showToast('Ayarlar kaydedildi ✓', 'success');
+  } else {
+    showToast('Kayıt başarısız', 'error');
+  }
+}
+
+async function testMail() {
+  const el = document.getElementById('sMailTestResult');
+  el.textContent = '⏳ Gönderiliyor…';
+  try {
+    const r = await apiFetch('/api/settings/test-mail', {method:'POST'});
+    const d = await r.json();
+    if (d.sent) {
+      el.style.color = 'var(--success)';
+      el.textContent = `✓ Gönderildi — ${d.acil_count} Acil bulgu iletildi`;
+    } else {
+      el.style.color = 'var(--danger, #ef4444)';
+      el.textContent = `✗ Hata: ${d.error || 'Bilinmeyen hata'}`;
+    }
+  } catch(e) {
+    el.style.color = 'var(--danger, #ef4444)';
+    el.textContent = '✗ Bağlantı hatası';
+  }
+}
+
 async function openUsers() {
   document.getElementById('usersOverlay').classList.add('open');
   await renderUsers();

@@ -41,10 +41,17 @@ from .connectors import FIREWALL_DEVICES
 from .fm_client import FortiManagerClient
 from .pa_client import PaloAltoClient
 from .scheduler import (
+    apply_schedule,
     get_scheduler_status,
     set_scheduler_enabled,
     setup_scheduler,
     shutdown_scheduler,
+)
+from .mailer import (
+    get_setting,
+    get_all_settings,
+    send_acil_report,
+    set_setting,
 )
 
 import logging
@@ -253,7 +260,17 @@ def _scheduled_scan():
     """APScheduler arka plan thread'inden çağrılır — kendi DB oturumunu açar."""
     db = SessionLocal()
     try:
-        _do_scan(db, triggered_by="scheduler")
+        sess = _do_scan(db, triggered_by="scheduler")
+        # Tarama tamamlandıktan sonra Acil bulguları mail ile bildir
+        if sess and sess.id:
+            try:
+                result = send_acil_report(db, sess.id)
+                if result["sent"]:
+                    log.info("Acil rapor maili gönderildi (%d bulgu)", result["acil_count"])
+                elif result["error"]:
+                    log.warning("Mail gönderilemedi: %s", result["error"])
+            except Exception as mail_exc:
+                log.error("Mail hatası: %s", mail_exc, exc_info=True)
     finally:
         db.close()
 
@@ -298,6 +315,18 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
     setup_scheduler(_scheduled_scan)
+    # DB'den zamanlayıcı ayarlarını oku ve uygula
+    _sched_db = SessionLocal()
+    try:
+        _hour    = int(get_setting(_sched_db, "scheduler_hour",    "2"))
+        _minute  = int(get_setting(_sched_db, "scheduler_minute",  "0"))
+        _enabled = get_setting(_sched_db, "scheduler_enabled", "1") == "1"
+        apply_schedule(_hour, _minute, _enabled)
+    except Exception as _e:
+        log.warning("Zamanlayıcı ayarı okunamadı: %s", _e)
+        apply_schedule(2, 0, True)
+    finally:
+        _sched_db.close()
     yield
     shutdown_scheduler()
 
@@ -1086,6 +1115,71 @@ def toggle_scheduler(
 ):
     enabled = body.get("enabled", True)
     return set_scheduler_enabled(enabled)
+
+
+# ── Sistem ayarları endpoint'leri ─────────────────────────────────────
+
+@app.get("/api/settings")
+def get_settings(
+    _: db_models.User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Tüm sistem ayarlarını döner (şifre hariç)."""
+    raw = get_all_settings(db)
+    # SMTP şifresini gizle
+    if "mail_smtp_pass" in raw and raw["mail_smtp_pass"]:
+        raw["mail_smtp_pass"] = "••••••••"
+    return raw
+
+
+@app.post("/api/settings")
+def save_settings(
+    body: dict,
+    current_user: db_models.User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Sistem ayarlarını kaydeder.
+    Zamanlayıcı saati değiştiyse job yeniden planlanır.
+    SMTP şifresi "••••••••" gelirse mevcut şifre korunur.
+    """
+    ALLOWED = {
+        "scheduler_enabled", "scheduler_hour", "scheduler_minute",
+        "mail_enabled", "mail_smtp_host", "mail_smtp_port",
+        "mail_smtp_user", "mail_smtp_pass", "mail_smtp_tls",
+        "mail_from", "mail_to", "mail_cc", "mail_subject",
+    }
+    for key, value in body.items():
+        if key not in ALLOWED:
+            continue
+        # Şifre maskeliyse güncelleme
+        if key == "mail_smtp_pass" and value == "••••••••":
+            continue
+        set_setting(db, key, str(value))
+
+    # Zamanlayıcıyı yeniden planla
+    try:
+        hour    = int(get_setting(db, "scheduler_hour",    "2"))
+        minute  = int(get_setting(db, "scheduler_minute",  "0"))
+        enabled = get_setting(db, "scheduler_enabled", "1") == "1"
+        apply_schedule(hour, minute, enabled)
+    except Exception as e:
+        log.warning("Zamanlayıcı güncellenemedi: %s", e)
+
+    return {"ok": True, "scheduler": get_scheduler_status()}
+
+
+@app.post("/api/settings/test-mail")
+def test_mail(
+    _: db_models.User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Son tarama session'ının Acil bulgularını test amaçlı gönderir."""
+    sess = _latest_session(db)
+    if not sess:
+        raise HTTPException(404, "Henüz tamamlanmış tarama yok")
+    result = send_acil_report(db, sess.id)
+    return result
 
 
 # ── Excel raporu ──────────────────────────────────────────────────────

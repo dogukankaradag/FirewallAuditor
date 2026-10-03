@@ -1,5 +1,5 @@
 """
-APScheduler — gece 02:00 otomatik tarama.
+APScheduler — ayarlanabilir günlük otomatik tarama (Europe/Istanbul).
 scan_func: DB oturumunu kendisi açan ve kapatan callable.
 """
 
@@ -22,56 +22,69 @@ def setup_scheduler(scan_func) -> BackgroundScheduler:
     _scan_func = scan_func
 
     _scheduler = BackgroundScheduler(timezone="Europe/Istanbul")
+    _scheduler.start()
+    logger.info("Zamanlayıcı başlatıldı")
+    return _scheduler
+
+
+def apply_schedule(hour: int, minute: int, enabled: bool):
+    """
+    DB'den okunan ayarlara göre job'u günceller.
+    Uygulama başlangıcında ve ayar değiştiğinde çağrılır.
+    """
+    if not _scheduler:
+        return
+
+    _scheduler.remove_job(JOB_ID) if _scheduler.get_job(JOB_ID) else None
+
+    if not enabled or not _scan_func:
+        logger.info("Zamanlayıcı devre dışı")
+        return
+
     _scheduler.add_job(
-        scan_func,
-        CronTrigger(hour=DEFAULT_HOUR, minute=DEFAULT_MIN),
+        _scan_func,
+        CronTrigger(hour=hour, minute=minute),
         id=JOB_ID,
-        name="Gece Otomatik Tarama",
+        name=f"Günlük Otomatik Tarama ({hour:02d}:{minute:02d})",
         replace_existing=True,
         misfire_grace_time=300,
     )
-    _scheduler.start()
-    logger.info("Zamanlayıcı başlatıldı — her gece %02d:%02d'de tarama", DEFAULT_HOUR, DEFAULT_MIN)
-    return _scheduler
+    logger.info("Zamanlayıcı güncellendi — her gün %02d:%02d (Europe/Istanbul)", hour, minute)
 
 
 def get_scheduler_status() -> dict:
     if not _scheduler:
-        return {"enabled": False, "next_run": None}
+        return {"enabled": False, "next_run": None, "hour": DEFAULT_HOUR, "minute": DEFAULT_MIN}
 
     job = _scheduler.get_job(JOB_ID)
-    if not job:
-        return {"enabled": False, "next_run": None}
+    next_run = job.next_run_time if job else None
+    hour, minute = DEFAULT_HOUR, DEFAULT_MIN
+    if job:
+        t = job.trigger
+        # CronTrigger'dan saat/dakika alalım
+        try:
+            for field in t.fields:
+                if field.name == "hour":
+                    hour = int(str(field))
+                elif field.name == "minute":
+                    minute = int(str(field))
+        except Exception:
+            pass
 
-    next_run = job.next_run_time
     return {
-        "enabled": True,
+        "enabled": bool(job),
         "next_run": next_run.isoformat() if next_run else None,
-        "schedule": f"Her gece {DEFAULT_HOUR:02d}:{DEFAULT_MIN:02d} (Europe/Istanbul)",
+        "schedule": f"Her gün {hour:02d}:{minute:02d} (Europe/Istanbul)",
+        "hour": hour,
+        "minute": minute,
     }
 
 
 def set_scheduler_enabled(enabled: bool) -> dict:
     if not _scheduler:
         return {"enabled": False}
-
-    job = _scheduler.get_job(JOB_ID)
-    if enabled:
-        if not job and _scan_func:
-            _scheduler.add_job(
-                _scan_func,
-                CronTrigger(hour=DEFAULT_HOUR, minute=DEFAULT_MIN),
-                id=JOB_ID,
-                name="Gece Otomatik Tarama",
-                replace_existing=True,
-                misfire_grace_time=300,
-            )
-        elif job:
-            job.resume()
-    else:
-        if job:
-            job.pause()
-
+    status = get_scheduler_status()
+    apply_schedule(status["hour"], status["minute"], enabled)
     return get_scheduler_status()
 
 

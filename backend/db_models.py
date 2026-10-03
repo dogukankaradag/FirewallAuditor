@@ -122,3 +122,18 @@ class SecurityProfileRecord(Base):
     profile_names  = Column(JSON, default=dict)  # {"av": "prof1", "webfilter": "prof2", ...}
 
     session = relationship("ScanSession", back_populates="security_profiles")
+
+
+class SystemSetting(Base):
+    """
+    Uygulama geneli anahtar/değer ayarları.
+    key örnekleri: scheduler_hour, scheduler_minute, scheduler_enabled,
+                   mail_smtp_host, mail_smtp_port, mail_smtp_user, mail_smtp_pass,
+                   mail_smtp_tls, mail_from, mail_to, mail_cc, mail_subject,
+                   mail_enabled
+    """
+    __tablename__ = "system_settings"
+
+    id    = Column(Integer, primary_key=True, index=True)
+    key   = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=True)
