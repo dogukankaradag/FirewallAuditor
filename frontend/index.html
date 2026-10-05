@@ -1515,7 +1515,7 @@ function closeSettings(e) {
 
 async function loadSettingsForm() {
   try {
-    const r = await apiFetch('/api/settings');
+    const r = await api('/api/settings');
     if (!r.ok) return;
     const s = await r.json();
 
@@ -1528,7 +1528,7 @@ async function loadSettingsForm() {
     document.getElementById('sMailSubject').value     = s.mail_subject ?? '';
 
     try {
-      const sr = await apiFetch('/api/scheduler');
+      const sr = await api('/api/scheduler');
       if (sr.ok) {
         const sched = await sr.json();
         const el = document.getElementById('sSchedNextRun');
@@ -1553,7 +1553,7 @@ async function saveSettings() {
     mail_cc          : document.getElementById('sMailCc').value.trim(),
     mail_subject     : document.getElementById('sMailSubject').value.trim(),
   };
-  const r = await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const r = await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   if (r.ok) {
     const d = await r.json();
     const next = d.scheduler?.next_run;
@@ -1573,7 +1573,8 @@ async function testMail() {
   const el = document.getElementById('sMailTestResult');
   el.textContent = '⏳ Gönderiliyor…';
   try {
-    const r = await apiFetch('/api/settings/test-mail', {method:'POST'});
+    const r = await api('/api/settings/test-mail', {method:'POST'});
+    if (!r) { el.style.color='var(--danger,#ef4444)'; el.textContent='✗ Sunucuya ulaşılamadı'; return; }
     const d = await r.json();
     if (d.sent) {
       el.style.color = 'var(--success)';
