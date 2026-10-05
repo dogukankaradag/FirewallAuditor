@@ -1,19 +1,19 @@
 """
 SMTP mail gönderici — tarama sonrası Acil bulguları raporlar.
-Tüm ayarlar SystemSetting tablosundan okunur.
+Tüm SMTP ayarları .env dosyasından (os.environ) okunur.
+Panel üzerinden yalnızca mail bildirimi etkin/devre dışı ayarlanabilir.
 """
 import logging
+import os
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
 
-# ── Ayar yardımcıları ────────────────────────────────────────────────
-
+# ── DB ayar yardımcıları (zamanlayıcı + mail_enabled için) ───────────
 
 def get_setting(db, key: str, default: str = "") -> str:
     from .db_models import SystemSetting
@@ -37,8 +37,45 @@ def get_all_settings(db) -> dict:
     return {r.key: r.value for r in rows}
 
 
-# ── Mail gönderici ───────────────────────────────────────────────────
+# ── SMTP ayarlarını env'den oku ───────────────────────────────────────
 
+def _smtp_config() -> dict:
+    """
+    .env / ortam değişkenlerinden SMTP ayarlarını okur.
+    python-dotenv kurulu değilse manuel parse eder.
+    """
+    # Önce python-dotenv ile dene
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)
+    except ImportError:
+        # Manuel .env parse — sadece henüz set edilmemiş değişkenler için
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+        env_path = os.path.normpath(env_path)
+        if os.path.isfile(env_path):
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    k = k.strip()
+                    v = v.strip()
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+
+    return {
+        "host":    os.environ.get("SMTP_HOST", "").strip(),
+        "port":    int(os.environ.get("SMTP_PORT", "25") or "25"),
+        "from":    os.environ.get("SMTP_FROM", "").strip(),
+        "use_tls": os.environ.get("SMTP_USE_TLS", "false").strip().lower() == "true",
+        "to":      [a.strip() for a in os.environ.get("SMTP_TO", "").split(",") if a.strip()],
+        "cc":      [a.strip() for a in os.environ.get("SMTP_CC", "").split(",") if a.strip()],
+        "subject": os.environ.get("SMTP_SUBJECT", "🚨 FirewallAudit — Acil Bulgular Raporu").strip(),
+    }
+
+
+# ── Mail gönderici ───────────────────────────────────────────────────
 
 def send_acil_report(db, session_id: int) -> dict:
     """
@@ -48,24 +85,17 @@ def send_acil_report(db, session_id: int) -> dict:
     from .db_models import FindingRecord, FindingStatus, ScanResult, ScanSession
     from sqlalchemy import or_
 
-    # Mail ayarlarını oku
-    settings = get_all_settings(db)
-    mail_enabled = settings.get("mail_enabled", "0") == "1"
+    # Mail etkin mi? (DB'den)
+    mail_enabled = get_setting(db, "mail_enabled", "0") == "1"
     if not mail_enabled:
         return {"sent": False, "error": "Mail bildirimi devre dışı", "acil_count": 0}
 
-    smtp_host = settings.get("mail_smtp_host", "").strip()
-    smtp_port = int(settings.get("mail_smtp_port", "587") or "587")
-    smtp_user = settings.get("mail_smtp_user", "").strip()
-    smtp_pass = settings.get("mail_smtp_pass", "").strip()
-    smtp_tls  = settings.get("mail_smtp_tls", "1") == "1"
-    mail_from = settings.get("mail_from", smtp_user).strip() or smtp_user
-    mail_to   = [a.strip() for a in settings.get("mail_to", "").split(",") if a.strip()]
-    mail_cc   = [a.strip() for a in settings.get("mail_cc", "").split(",") if a.strip()]
-    mail_subj = settings.get("mail_subject", "🚨 FirewallAudit — Acil Bulgular Raporu").strip()
+    cfg = _smtp_config()
 
-    if not smtp_host or not mail_to:
-        return {"sent": False, "error": "SMTP sunucusu veya alıcı tanımlanmamış", "acil_count": 0}
+    if not cfg["host"]:
+        return {"sent": False, "error": "SMTP_HOST tanımlanmamış (.env)", "acil_count": 0}
+    if not cfg["to"]:
+        return {"sent": False, "error": "SMTP_TO tanımlanmamış (.env)", "acil_count": 0}
 
     # Acil bulguları çek (çözüldü hariç)
     rows = (
@@ -86,40 +116,33 @@ def send_acil_report(db, session_id: int) -> dict:
 
     acil_count = len(rows)
 
-    # Session bilgisi
     sess = db.query(ScanSession).filter(ScanSession.id == session_id).first()
     scan_time = sess.finished_at.strftime("%d.%m.%Y %H:%M") if (sess and sess.finished_at) else "—"
 
-    # HTML mail gövdesi
     html = _build_html(rows, acil_count, scan_time)
 
-    # MIMEMultipart mesaj
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = mail_subj
-    msg["From"]    = mail_from
-    msg["To"]      = ", ".join(mail_to)
-    if mail_cc:
-        msg["Cc"] = ", ".join(mail_cc)
+    msg["Subject"] = cfg["subject"]
+    msg["From"]    = cfg["from"] or cfg["host"]
+    msg["To"]      = ", ".join(cfg["to"])
+    if cfg["cc"]:
+        msg["Cc"] = ", ".join(cfg["cc"])
     msg.attach(MIMEText(html, "html", "utf-8"))
 
-    recipients = mail_to + mail_cc
+    recipients = cfg["to"] + cfg["cc"]
 
     try:
-        if smtp_tls:
+        if cfg["use_tls"]:
             ctx = ssl.create_default_context()
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as server:
                 server.ehlo()
                 server.starttls(context=ctx)
-                if smtp_user and smtp_pass:
-                    server.login(smtp_user, smtp_pass)
-                server.sendmail(mail_from, recipients, msg.as_string())
+                server.sendmail(cfg["from"], recipients, msg.as_string())
         else:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
-                if smtp_user and smtp_pass:
-                    server.login(smtp_user, smtp_pass)
-                server.sendmail(mail_from, recipients, msg.as_string())
+            with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as server:
+                server.sendmail(cfg["from"], recipients, msg.as_string())
 
-        log.info("Acil rapor maili gönderildi — %d bulgu, alıcılar: %s", acil_count, recipients)
+        log.info("Acil rapor maili gönderildi — %d bulgu → %s", acil_count, recipients)
         return {"sent": True, "error": None, "acil_count": acil_count}
 
     except Exception as e:
@@ -129,28 +152,17 @@ def send_acil_report(db, session_id: int) -> dict:
 
 # ── HTML şablonu ─────────────────────────────────────────────────────
 
-
 def _build_html(rows, acil_count: int, scan_time: str) -> str:
     rows_html = ""
     for i, (f, st, sr) in enumerate(rows):
         bg = "#fff9f9" if i % 2 == 0 else "#fff3f3"
-        status_label = ""
-        if st:
-            status_map = {
-                "open": "Açık",
-                "acknowledged": "Farkında",
-                "in_progress": "İşlemde",
-            }
-            status_label = status_map.get(st.status, st.status)
+        status_map = {"open": "Açık", "acknowledged": "Farkında", "in_progress": "İşlemde"}
+        status_label = status_map.get(st.status, st.status) if st else "Açık"
 
         details_html = ""
         if f.rule_details:
-            items = []
-            for k, v in f.rule_details.items():
-                if v and k not in ("raw",):
-                    items.append(f"<b>{k}</b>: {v}")
-            if items:
-                details_html = "<br>".join(items[:6])
+            items = [f"<b>{k}</b>: {v}" for k, v in f.rule_details.items() if v and k != "raw"]
+            details_html = "<br>".join(items[:6])
 
         rows_html += f"""
         <tr style="background:{bg}">
@@ -160,16 +172,12 @@ def _build_html(rows, acil_count: int, scan_time: str) -> str:
           <td style="padding:8px 10px;border-bottom:1px solid #ffe0e0;font-weight:600">{f.check_name or '—'}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #ffe0e0">{f.rule_name or f.rule_id or '—'}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #ffe0e0;font-size:12px;color:#555">{details_html}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #ffe0e0;font-size:12px;color:#888">{status_label or 'Açık'}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #ffe0e0;font-size:12px;color:#888">{status_label}</td>
         </tr>"""
 
     if not rows_html:
-        rows_html = """
-        <tr>
-          <td colspan="7" style="padding:20px;text-align:center;color:#555;font-style:italic">
-            Bu taramada çözülmemiş Acil bulgu bulunamadı.
-          </td>
-        </tr>"""
+        rows_html = """<tr><td colspan="7" style="padding:20px;text-align:center;color:#555;font-style:italic">
+            Bu taramada çözülmemiş Acil bulgu bulunamadı.</td></tr>"""
 
     return f"""<!DOCTYPE html>
 <html lang="tr">
@@ -178,29 +186,21 @@ def _build_html(rows, acil_count: int, scan_time: str) -> str:
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0">
     <tr><td align="center">
       <table width="820" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)">
-
-        <!-- Başlık -->
         <tr><td style="background:#cc0000;padding:20px 28px">
           <div style="color:#fff;font-size:20px;font-weight:700">🚨 FirewallAudit — Acil Bulgular Raporu</div>
           <div style="color:#ffcccc;font-size:13px;margin-top:4px">Tarama zamanı: {scan_time} (Europe/Istanbul)</div>
         </td></tr>
-
-        <!-- Özet -->
         <tr><td style="padding:16px 28px;background:#fff8f8;border-bottom:1px solid #ffe0e0">
           <span style="font-size:15px;color:#cc0000;font-weight:600">
             Toplam <b>{acil_count}</b> adet çözülmemiş Acil bulgu tespit edildi.
           </span>
-          <span style="font-size:12px;color:#888;margin-left:12px">
-            (Çözüldü işaretli bulgular bu raporda yer almaz.)
-          </span>
+          <span style="font-size:12px;color:#888;margin-left:12px">(Çözüldü işaretli bulgular bu raporda yer almaz.)</span>
         </td></tr>
-
-        <!-- Tablo -->
         <tr><td style="padding:20px 28px">
           <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px">
             <thead>
               <tr style="background:#ffeeee">
-                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cc0000;white-space:nowrap">Önem</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cc0000">Önem</th>
                 <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cc0000">Müşteri</th>
                 <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cc0000">Cihaz</th>
                 <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cc0000">Kontrol</th>
@@ -212,12 +212,9 @@ def _build_html(rows, acil_count: int, scan_time: str) -> str:
             <tbody>{rows_html}</tbody>
           </table>
         </td></tr>
-
-        <!-- Alt bilgi -->
         <tr><td style="padding:14px 28px;background:#f9f9f9;border-top:1px solid #eee;text-align:center">
-          <span style="font-size:11px;color:#aaa">Bu mail FirewallAudit sistemi tarafından otomatik olarak gönderilmiştir. Lütfen yanıtlamayın.</span>
+          <span style="font-size:11px;color:#aaa">Bu mail FirewallAudit sistemi tarafından otomatik olarak gönderilmiştir.</span>
         </td></tr>
-
       </table>
     </td></tr>
   </table>

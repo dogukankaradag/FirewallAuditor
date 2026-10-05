@@ -532,105 +532,50 @@ td{padding:9px 11px;vertical-align:middle}
 
 <!-- ── Ayarlar modal ── -->
 <div class="overlay" id="settingsOverlay" onclick="closeSettings(event)">
-  <div class="modal" style="width:680px;max-width:96vw" onclick="event.stopPropagation()">
+  <div class="modal" style="width:480px;max-width:96vw" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <div class="modal-title">⚙️ Sistem Ayarları</div>
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
 
-    <!-- Sekmeler -->
-    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
-      <button id="stab-sched" class="settings-tab active" onclick="switchSettingsTab('sched')">📅 Zamanlayıcı</button>
-      <button id="stab-mail"  class="settings-tab"        onclick="switchSettingsTab('mail')">✉️ Mail Bildirimi</button>
-    </div>
-
-    <!-- Zamanlayıcı sekmesi -->
-    <div id="spanel-sched">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
-          <input type="checkbox" id="sSchedEnabled" style="accent-color:var(--accent);width:16px;height:16px">
-          Günlük otomatik tarama etkin
-        </label>
-      </div>
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+    <!-- Zamanlayıcı -->
+    <div style="margin-bottom:24px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">📅 Günlük Otomatik Tarama</div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:14px">
+        <input type="checkbox" id="sSchedEnabled" style="accent-color:var(--accent);width:16px;height:16px">
+        <span style="font-size:14px">Otomatik taramayı etkinleştir</span>
+      </label>
+      <div style="display:flex;align-items:center;gap:10px">
         <div>
-          <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:4px">Saat (GMT+3 İstanbul)</label>
-          <input type="number" id="sSchedHour" min="0" max="23" style="width:80px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Saat (GMT+3)</label>
+          <input type="number" id="sSchedHour" min="0" max="23" style="width:72px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
         </div>
-        <div style="font-size:22px;color:var(--muted);margin-top:18px">:</div>
+        <div style="font-size:20px;color:var(--muted);margin-top:18px">:</div>
         <div>
-          <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:4px">Dakika</label>
-          <input type="number" id="sSchedMin" min="0" max="59" style="width:80px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Dakika</label>
+          <input type="number" id="sSchedMin" min="0" max="59" style="width:72px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
         </div>
-      </div>
-      <div id="sSchedNextRun" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
-    </div>
-
-    <!-- Mail sekmesi -->
-    <div id="spanel-mail" style="display:none">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
-          <input type="checkbox" id="sMailEnabled" style="accent-color:var(--accent);width:16px;height:16px">
-          Acil bulgu mail bildirimi etkin
-        </label>
-      </div>
-
-      <!-- SMTP -->
-      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">SMTP Sunucusu</div>
-      <div style="display:grid;grid-template-columns:1fr 100px 1fr;gap:10px;margin-bottom:12px">
-        <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Sunucu (Host)</label>
-          <input type="text" id="sSmtpHost" placeholder="smtp.gmail.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Port</label>
-          <input type="number" id="sSmtpPort" placeholder="587" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;display:flex;align-items:center;gap:6px">
-            <input type="checkbox" id="sSmtpTls" style="accent-color:var(--accent)"> STARTTLS
-          </label>
-          <div style="font-size:11px;color:var(--muted);padding-top:2px">Port 587 için açık, 465 için kapalı bırakın</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-        <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Kullanıcı adı</label>
-          <input type="text" id="sSmtpUser" placeholder="user@example.com" autocomplete="off" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Şifre</label>
-          <input type="password" id="sSmtpPass" placeholder="••••••••" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-        </div>
-      </div>
-
-      <!-- Gönderen -->
-      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">Mail Detayları</div>
-      <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gönderen (From)</label>
-        <input type="text" id="sMailFrom" placeholder="firewallaudit@example.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Alıcılar — To <span style="color:var(--muted);font-weight:400">(virgülle ayır)</span></label>
-        <input type="text" id="sMailTo" placeholder="noc@example.com, soc@example.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">CC <span style="color:var(--muted);font-weight:400">(opsiyonel, virgülle ayır)</span></label>
-        <input type="text" id="sMailCc" placeholder="manager@example.com" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-      </div>
-      <div style="margin-bottom:16px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Mail Konusu (Subject)</label>
-        <input type="text" id="sMailSubject" placeholder="🚨 FirewallAudit — Acil Bulgular Raporu" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
-      </div>
-
-      <!-- Test butonu -->
-      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
-        <button class="btn btn-ghost" onclick="testMail()" style="white-space:nowrap">📨 Test Maili Gönder</button>
-        <span id="sMailTestResult" style="font-size:13px;color:var(--muted)">Son taramanın Acil bulgularını gönderir</span>
+        <div id="sSchedNextRun" style="font-size:12px;color:var(--muted);margin-top:18px;padding-left:6px"></div>
       </div>
     </div>
 
-    <!-- Alt butonlar -->
+    <!-- Mail bildirimi -->
+    <div style="border-top:1px solid var(--border);padding-top:20px;margin-bottom:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">✉️ Acil Bulgu Mail Bildirimi</div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px">
+        <input type="checkbox" id="sMailEnabled" style="accent-color:var(--accent);width:16px;height:16px">
+        <span style="font-size:14px">Tarama sonrası mail gönder</span>
+      </label>
+      <div style="font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;line-height:1.7">
+        SMTP ayarları sunucudaki <code style="background:rgba(99,102,241,.1);padding:1px 5px;border-radius:4px">.env</code> dosyasından okunur.<br>
+        <span style="opacity:.7">SMTP_HOST · SMTP_PORT · SMTP_FROM · SMTP_TO · SMTP_CC · SMTP_USE_TLS</span>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <button class="btn btn-ghost" onclick="testMail()" style="font-size:13px">📨 Test Maili Gönder</button>
+        <span id="sMailTestResult" style="font-size:13px;color:var(--muted)"></span>
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border)">
       <button class="btn btn-ghost" onclick="closeSettings()">İptal</button>
       <button class="btn btn-primary" onclick="saveSettings()">💾 Kaydet</button>
@@ -1559,12 +1504,11 @@ async function loadSettingsForm() {
     if (!r.ok) return;
     const s = await r.json();
 
-    // Zamanlayıcı
     document.getElementById('sSchedEnabled').checked = (s.scheduler_enabled ?? '1') === '1';
-    document.getElementById('sSchedHour').value   = s.scheduler_hour   ?? '2';
-    document.getElementById('sSchedMin').value    = s.scheduler_minute ?? '0';
+    document.getElementById('sSchedHour').value      = s.scheduler_hour   ?? '2';
+    document.getElementById('sSchedMin').value       = s.scheduler_minute ?? '0';
+    document.getElementById('sMailEnabled').checked  = (s.mail_enabled    ?? '0') === '1';
 
-    // Next run
     try {
       const sr = await apiFetch('/api/scheduler');
       if (sr.ok) {
@@ -1572,43 +1516,21 @@ async function loadSettingsForm() {
         const el = document.getElementById('sSchedNextRun');
         if (sched.next_run) {
           const d = new Date(sched.next_run);
-          el.textContent = '⏰ Sonraki çalışma: ' + d.toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
+          el.textContent = '⏰ ' + d.toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
         } else {
-          el.textContent = sched.enabled ? '' : '⏸ Zamanlayıcı duraklatılmış';
+          el.textContent = sched.enabled ? '' : '⏸ Duraklatılmış';
         }
       }
     } catch(e) {}
-
-    // Mail
-    document.getElementById('sMailEnabled').checked  = (s.mail_enabled ?? '0') === '1';
-    document.getElementById('sSmtpHost').value        = s.mail_smtp_host   ?? '';
-    document.getElementById('sSmtpPort').value        = s.mail_smtp_port   ?? '587';
-    document.getElementById('sSmtpTls').checked       = (s.mail_smtp_tls   ?? '1') === '1';
-    document.getElementById('sSmtpUser').value        = s.mail_smtp_user   ?? '';
-    document.getElementById('sSmtpPass').value        = (s.mail_smtp_pass  && s.mail_smtp_pass !== '') ? '••••••••' : '';
-    document.getElementById('sMailFrom').value        = s.mail_from        ?? '';
-    document.getElementById('sMailTo').value          = s.mail_to          ?? '';
-    document.getElementById('sMailCc').value          = s.mail_cc          ?? '';
-    document.getElementById('sMailSubject').value     = s.mail_subject     ?? '';
   } catch(e) { console.error('Ayarlar yüklenemedi', e); }
 }
 
 async function saveSettings() {
-  const pass = document.getElementById('sSmtpPass').value;
   const body = {
-    scheduler_enabled : document.getElementById('sSchedEnabled').checked ? '1' : '0',
-    scheduler_hour    : document.getElementById('sSchedHour').value,
-    scheduler_minute  : document.getElementById('sSchedMin').value,
-    mail_enabled      : document.getElementById('sMailEnabled').checked  ? '1' : '0',
-    mail_smtp_host    : document.getElementById('sSmtpHost').value,
-    mail_smtp_port    : document.getElementById('sSmtpPort').value,
-    mail_smtp_tls     : document.getElementById('sSmtpTls').checked      ? '1' : '0',
-    mail_smtp_user    : document.getElementById('sSmtpUser').value,
-    mail_smtp_pass    : pass,   // "••••••••" gelirse backend korur
-    mail_from         : document.getElementById('sMailFrom').value,
-    mail_to           : document.getElementById('sMailTo').value,
-    mail_cc           : document.getElementById('sMailCc').value,
-    mail_subject      : document.getElementById('sMailSubject').value,
+    scheduler_enabled: document.getElementById('sSchedEnabled').checked ? '1' : '0',
+    scheduler_hour   : document.getElementById('sSchedHour').value,
+    scheduler_minute : document.getElementById('sSchedMin').value,
+    mail_enabled     : document.getElementById('sMailEnabled').checked  ? '1' : '0',
   };
   const r = await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   if (r.ok) {
@@ -1617,7 +1539,7 @@ async function saveSettings() {
     const el = document.getElementById('sSchedNextRun');
     if (next) {
       const nd = new Date(next);
-      el.textContent = '⏰ Sonraki çalışma: ' + nd.toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
+      el.textContent = '⏰ ' + nd.toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
     }
     closeSettings();
     showToast('Ayarlar kaydedildi ✓', 'success');

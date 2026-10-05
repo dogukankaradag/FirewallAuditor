@@ -1126,9 +1126,6 @@ def get_settings(
 ):
     """Tüm sistem ayarlarını döner (şifre hariç)."""
     raw = get_all_settings(db)
-    # SMTP şifresini gizle
-    if "mail_smtp_pass" in raw and raw["mail_smtp_pass"]:
-        raw["mail_smtp_pass"] = "••••••••"
     return raw
 
 
@@ -1145,9 +1142,8 @@ def save_settings(
     """
     ALLOWED = {
         "scheduler_enabled", "scheduler_hour", "scheduler_minute",
-        "mail_enabled", "mail_smtp_host", "mail_smtp_port",
-        "mail_smtp_user", "mail_smtp_pass", "mail_smtp_tls",
-        "mail_from", "mail_to", "mail_cc", "mail_subject",
+        "mail_enabled",
+        # SMTP ayarları .env dosyasından okunur, panel üzerinden değiştirilemez
     }
     for key, value in body.items():
         if key not in ALLOWED:
