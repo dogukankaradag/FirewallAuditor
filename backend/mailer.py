@@ -87,7 +87,7 @@ def send_acil_report(db, session_id: int, force: bool = False) -> dict:
 
     # SMTP altyapısı — .env'den
     _load_env()
-    smtp_host = os.environ.get("SMTP_HOST", "").strip()
+    smtp_host = (os.environ.get("SMTP_HOST") or os.environ.get("SMTP_HOSTS") or "").strip()
     smtp_port = int(os.environ.get("SMTP_PORT", "25") or "25")
     smtp_from = os.environ.get("SMTP_FROM", "").strip()
     use_tls   = os.environ.get("SMTP_USE_TLS", "false").strip().lower() == "true"
