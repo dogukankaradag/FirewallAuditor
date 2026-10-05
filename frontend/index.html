@@ -585,8 +585,9 @@ td{padding:9px 11px;vertical-align:middle}
         SMTP altyapısı sunucudaki <code style="background:rgba(99,102,241,.1);padding:1px 5px;border-radius:4px">.env</code> dosyasından okunur.<br>
         <span style="opacity:.7">SMTP_HOST · SMTP_PORT · SMTP_FROM · SMTP_USE_TLS</span>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button class="btn btn-ghost" onclick="testMail()" style="font-size:13px">📨 Test Maili Gönder</button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="sendMailNow()" style="font-size:13px">📨 Şimdi Gönder</button>
+        <button class="btn btn-ghost" onclick="testMail()" style="font-size:13px">🧪 Test Maili</button>
         <span id="sMailTestResult" style="font-size:13px;color:var(--muted)"></span>
       </div>
     </div>
@@ -1582,6 +1583,27 @@ async function testMail() {
     } else {
       el.style.color = 'var(--danger, #ef4444)';
       el.textContent = `✗ Hata: ${d.error || 'Bilinmeyen hata'}`;
+    }
+  } catch(e) {
+    el.style.color = 'var(--danger, #ef4444)';
+    el.textContent = '✗ Bağlantı hatası';
+  }
+}
+
+async function sendMailNow() {
+  const el = document.getElementById('sMailTestResult');
+  el.textContent = '⏳ Gönderiliyor…';
+  el.style.color = 'var(--muted)';
+  try {
+    const r = await api('/api/settings/send-now', {method:'POST'});
+    if (!r) { el.style.color='var(--danger,#ef4444)'; el.textContent='✗ Sunucuya ulaşılamadı'; return; }
+    const d = await r.json();
+    if (d.sent) {
+      el.style.color = 'var(--success)';
+      el.textContent = `✓ Gönderildi — ${d.acil_count} Acil bulgu iletildi`;
+    } else {
+      el.style.color = 'var(--danger, #ef4444)';
+      el.textContent = `✗ ${d.error || 'Bilinmeyen hata'}`;
     }
   } catch(e) {
     el.style.color = 'var(--danger, #ef4444)';

@@ -1174,8 +1174,20 @@ def test_mail(
     sess = _latest_session(db)
     if not sess:
         raise HTTPException(404, "Henüz tamamlanmış tarama yok")
-    result = send_acil_report(db, sess.id)
+    result = send_acil_report(db, sess.id, force=True)
     return result
+
+
+@app.post("/api/settings/send-now")
+def send_now(
+    _: db_models.User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Son tarama session'ının Acil bulgularını hemen gönderir (mail_enabled bağımsız)."""
+    sess = _latest_session(db)
+    if not sess:
+        raise HTTPException(404, "Henüz tamamlanmış tarama yok")
+    return send_acil_report(db, sess.id, force=True)
 
 
 # ── Excel raporu ──────────────────────────────────────────────────────

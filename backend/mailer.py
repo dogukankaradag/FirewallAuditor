@@ -72,16 +72,17 @@ def _load_env():
 
 # ── Mail gönderici ───────────────────────────────────────────────────
 
-def send_acil_report(db, session_id: int) -> dict:
+def send_acil_report(db, session_id: int, force: bool = False) -> dict:
     """
     Belirtilen tarama session'ına ait Acil bulguları (çözüldü hariç) mail ile gönderir.
+    force=True → mail_enabled kontrolünü atlar (manuel/test tetiklemesi).
     Dönüş: {"sent": bool, "error": str|None, "acil_count": int}
     """
     from .db_models import FindingRecord, FindingStatus, ScanResult, ScanSession
     from sqlalchemy import or_
 
-    # Mail etkin mi?
-    if get_setting(db, "mail_enabled", "0") != "1":
+    # Mail etkin mi? (force=True → manuel tetikleme, kontrol atlanır)
+    if not force and get_setting(db, "mail_enabled", "0") != "1":
         return {"sent": False, "error": "Mail bildirimi devre dışı", "acil_count": 0}
 
     # SMTP altyapısı — .env'den
