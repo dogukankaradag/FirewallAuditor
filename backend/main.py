@@ -1142,8 +1142,8 @@ def save_settings(
     """
     ALLOWED = {
         "scheduler_enabled", "scheduler_hour", "scheduler_minute",
-        "mail_enabled",
-        # SMTP ayarları .env dosyasından okunur, panel üzerinden değiştirilemez
+        "mail_enabled", "mail_to", "mail_cc", "mail_subject",
+        # SMTP sunucu ayarları (host/port/from/tls) .env dosyasından okunur
     }
     for key, value in body.items():
         if key not in ALLOWED:

@@ -566,11 +566,26 @@ td{padding:9px 11px;vertical-align:middle}
         <input type="checkbox" id="sMailEnabled" style="accent-color:var(--accent);width:16px;height:16px">
         <span style="font-size:14px">Tarama sonrası mail gönder</span>
       </label>
-      <div style="font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;line-height:1.7">
-        SMTP ayarları sunucudaki <code style="background:rgba(99,102,241,.1);padding:1px 5px;border-radius:4px">.env</code> dosyasından okunur.<br>
-        <span style="opacity:.7">SMTP_HOST · SMTP_PORT · SMTP_FROM · SMTP_TO · SMTP_CC · SMTP_USE_TLS</span>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Alıcı (To)</label>
+        <input type="text" id="sMailTo" placeholder="sec@sirket.com, noc@sirket.com"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box">
       </div>
-      <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Bilgi (CC) <span style="opacity:.6">— opsiyonel</span></label>
+        <input type="text" id="sMailCc" placeholder="yonetici@sirket.com"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Konu Başlığı</label>
+        <input type="text" id="sMailSubject" placeholder="Firewall Auditor - ACİL BULGULAR RAPORU"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box">
+      </div>
+      <div style="font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;line-height:1.7;margin-bottom:10px">
+        SMTP altyapısı sunucudaki <code style="background:rgba(99,102,241,.1);padding:1px 5px;border-radius:4px">.env</code> dosyasından okunur.<br>
+        <span style="opacity:.7">SMTP_HOST · SMTP_PORT · SMTP_FROM · SMTP_USE_TLS</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
         <button class="btn btn-ghost" onclick="testMail()" style="font-size:13px">📨 Test Maili Gönder</button>
         <span id="sMailTestResult" style="font-size:13px;color:var(--muted)"></span>
       </div>
@@ -1508,6 +1523,9 @@ async function loadSettingsForm() {
     document.getElementById('sSchedHour').value      = s.scheduler_hour   ?? '2';
     document.getElementById('sSchedMin').value       = s.scheduler_minute ?? '0';
     document.getElementById('sMailEnabled').checked  = (s.mail_enabled    ?? '0') === '1';
+    document.getElementById('sMailTo').value          = s.mail_to      ?? '';
+    document.getElementById('sMailCc').value          = s.mail_cc      ?? '';
+    document.getElementById('sMailSubject').value     = s.mail_subject ?? '';
 
     try {
       const sr = await apiFetch('/api/scheduler');
@@ -1531,6 +1549,9 @@ async function saveSettings() {
     scheduler_hour   : document.getElementById('sSchedHour').value,
     scheduler_minute : document.getElementById('sSchedMin').value,
     mail_enabled     : document.getElementById('sMailEnabled').checked  ? '1' : '0',
+    mail_to          : document.getElementById('sMailTo').value.trim(),
+    mail_cc          : document.getElementById('sMailCc').value.trim(),
+    mail_subject     : document.getElementById('sMailSubject').value.trim(),
   };
   const r = await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   if (r.ok) {
