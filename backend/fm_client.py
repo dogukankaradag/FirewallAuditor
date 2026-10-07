@@ -245,11 +245,16 @@ class FortiManagerClient:
             "srcaddr":           extract_names(pol.get("srcaddr"), fallback="all"),
             "dstaddr":           extract_names(pol.get("dstaddr"), fallback="all"),
             "service":           extract_names(pol.get("service"),  fallback="ALL"),
+            "srcintf":           extract_names(pol.get("srcintf"),  fallback="any"),
+            "dstintf":           extract_names(pol.get("dstintf"),  fallback="any"),
             "action":            action,
             "logtraffic":        logtraffic,
             "status":            status,
             "comments":          pol.get("comments", ""),
             "security_profiles": security_profiles,
+            # Kural yazarı / son değiştiren (FM API sağlarsa dolu gelir)
+            "created_by":        str(pol.get("_created_by",  "") or pol.get("created_by",  "") or ""),
+            "modified_by":       str(pol.get("_modified_by", "") or pol.get("modified_by", "") or ""),
         }
 
     # ──────────────────────────────────────────────────────────────────────

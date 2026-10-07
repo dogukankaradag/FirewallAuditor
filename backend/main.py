@@ -199,7 +199,8 @@ def _save_security_profiles(
 ):
     """Her cihazın tüm kuralları için SecurityProfileRecord kayıtları oluşturur."""
     for dev, fm_data in raw_fm_data:
-        label = dev.get("label", dev["id"])
+        dev_label = dev.get("label", dev["id"])
+        dev_host  = dev.get("host", "")
         for adom in fm_data.get("adoms", []):
             device_name = adom["name"]
             customer    = adom["customer"]
@@ -208,6 +209,8 @@ def _save_security_profiles(
                 db.add(db_models.SecurityProfileRecord(
                     session_id     = session.id,
                     device_name    = device_name,
+                    device_host    = dev_host,
+                    device_label   = dev_label,
                     customer       = customer,
                     platform       = "fortimanager",
                     rule_id        = str(pol.get("policyid", "")),
@@ -220,6 +223,8 @@ def _save_security_profiles(
                 ))
 
     for dev, pa_data in raw_pa_data:
+        dev_label = dev.get("label", dev["id"])
+        dev_host  = dev.get("host", "")
         for vsys in pa_data.get("vsys_list", []):
             device_name = vsys["name"]
             customer    = vsys["customer"]
@@ -231,6 +236,8 @@ def _save_security_profiles(
                 db.add(db_models.SecurityProfileRecord(
                     session_id     = session.id,
                     device_name    = device_name,
+                    device_host    = dev_host,
+                    device_label   = dev_label,
                     customer       = customer,
                     platform       = "paloalto",
                     rule_id        = rule.get("name", ""),
@@ -1068,6 +1075,8 @@ def get_security_profiles(
                 "has_all":       0,
                 "platform":      rec.platform,
                 "device_name":   rec.device_name,
+                "device_host":   rec.device_host  or "",
+                "device_label":  rec.device_label or "",
                 "rules":         [],
             }
         entry = by_customer[cust]

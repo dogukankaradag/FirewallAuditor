@@ -111,6 +111,8 @@ class SecurityProfileRecord(Base):
     id             = Column(Integer, primary_key=True, index=True)
     session_id     = Column(Integer, ForeignKey("scan_sessions.id"), nullable=False)
     device_name    = Column(String(200))
+    device_host    = Column(String(100), default="")   # Cihaz IP adresi (ör. "172.30.33.31")
+    device_label   = Column(String(200), default="")   # Kullanıcı dostu isim (ör. "Gayrettepe")
     customer       = Column(String(200))
     platform       = Column(String(50))
     rule_id        = Column(String(100))

@@ -414,15 +414,6 @@ td{padding:9px 11px;vertical-align:middle}
     <div class="stat-card" onclick="filterBySev('critical')">
       <div class="stat-label">🔴 Kritik</div><div class="stat-value critical" id="statCritical">—</div>
     </div>
-    <div class="stat-card" onclick="filterBySev('high')">
-      <div class="stat-label">🟠 Yüksek</div><div class="stat-value high" id="statHigh">—</div>
-    </div>
-    <div class="stat-card" onclick="filterBySev('medium')">
-      <div class="stat-label">🟡 Orta</div><div class="stat-value medium" id="statMedium">—</div>
-    </div>
-    <div class="stat-card" onclick="filterBySev('low')">
-      <div class="stat-label">🟢 Düşük</div><div class="stat-value low" id="statLow">—</div>
-    </div>
     <div class="stat-card" onclick="filterBySev('resolved')" title="Çözüldü olarak işaretlenen bulgular" style="cursor:pointer">
       <div class="stat-label">✅ Çözüldü</div>
       <div class="stat-value" style="color:var(--low)" id="statResolved">—</div>
@@ -457,9 +448,6 @@ td{padding:9px 11px;vertical-align:middle}
             <option value="all">Tüm Önem</option>
             <option value="acil">🚨 Acil</option>
             <option value="critical">🔴 Kritik</option>
-            <option value="high">🟠 Yüksek</option>
-            <option value="medium">🟡 Orta</option>
-            <option value="low">🟢 Düşük</option>
           </select>
           <select class="fsel" id="platFilter" onchange="applyFilters()">
             <option value="all">Tüm Platform</option>
@@ -815,9 +803,6 @@ async function loadSummary() {
   document.getElementById('statTotal').textContent    = d.total_findings   ?? 0;
   document.getElementById('statAcil').textContent     = d.findings_by_severity?.acil     ?? 0;
   document.getElementById('statCritical').textContent = d.findings_by_severity?.critical ?? 0;
-  document.getElementById('statHigh').textContent     = d.findings_by_severity?.high     ?? 0;
-  document.getElementById('statMedium').textContent   = d.findings_by_severity?.medium   ?? 0;
-  document.getElementById('statLow').textContent      = d.findings_by_severity?.low      ?? 0;
   document.getElementById('statResolved').textContent = d.resolved_count ?? 0;
   const rc = d.resolved_changed_count ?? 0;
   document.getElementById('statResolvedChanged').textContent = rc > 0 ? `🔄 ${rc} güncellendi` : '';
@@ -1281,7 +1266,7 @@ function filterBySev(sev) {
   }
   document.getElementById('sevFilter').value = sev;
   document.querySelectorAll('.stat-card').forEach((c,i) =>
-    c.classList.toggle('active', ['all','acil','critical','high','medium','low'][i] === sev));
+    c.classList.toggle('active', ['all','acil','critical','resolved'][i] === sev));
   applyFilters();
 }
 
@@ -1385,12 +1370,17 @@ function secCard(customer, d, hasAll) {
       <span class="pc-count">${p.count}</span>
     </div>`).join('');
 
+  // Güvenlik duvarı adı: "{IP}-{Label}" formatında, yoksa device_name
+  const fwName = (d.device_host && d.device_label)
+    ? `${d.device_host}-${d.device_label}`
+    : (d.device_label || d.device_host || d.device_name || '');
+
   return `
     <div class="sec-card ${hasAll?'has-all':''}">
       <div class="sec-card-head">
         <div>
           <div class="sec-card-name">${esc(customer)}${platTag}</div>
-          <div class="sec-card-device">${esc(d.device_name||'')}</div>
+          <div class="sec-card-device">${esc(fwName)}</div>
         </div>
         ${allBadge}
       </div>
@@ -1472,14 +1462,11 @@ function exitHistoricalView() {
 
 function _updateStatsFromFindings() {
   if (!historicalSessionId) return;
-  const counts = {acil:0,critical:0,high:0,medium:0,low:0};
+  const counts = {acil:0,critical:0};
   for (const f of allFindings) { if (counts[f.severity]!==undefined) counts[f.severity]++; }
   document.getElementById('statTotal').textContent    = allFindings.length;
   document.getElementById('statAcil').textContent     = counts.acil;
   document.getElementById('statCritical').textContent = counts.critical;
-  document.getElementById('statHigh').textContent     = counts.high;
-  document.getElementById('statMedium').textContent   = counts.medium;
-  document.getElementById('statLow').textContent      = counts.low;
   document.getElementById('statResolved').textContent = '—';
   document.getElementById('statResolvedChanged').textContent = '';
   document.getElementById('lastScan').textContent = `📅 Geçmiş: ${historicalSessionDate}`;
