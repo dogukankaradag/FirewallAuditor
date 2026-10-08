@@ -70,6 +70,7 @@ header{
 }
 .role-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.4px}
 .role-badge.admin{background:rgba(79,142,247,.2);color:var(--accent)}
+.role-badge.editor{background:rgba(34,197,94,.18);color:#16a34a}
 .role-badge.readonly{background:rgba(136,146,164,.15);color:var(--muted)}
 .last-scan{font-size:11px;color:var(--muted);white-space:nowrap}
 .btn{padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
@@ -416,6 +417,7 @@ td{padding:9px 11px;vertical-align:middle}
         <div class="user-avatar" id="userAvatar">?</div>
         <span id="userName">—</span>
         <span class="role-badge" id="roleBadge">—</span>
+        <button class="btn-ghost" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:12px" onclick="openChangePw()" title="Parola Değiştir">🔑</button>
         <button class="btn-ghost" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:12px" onclick="doLogout()" title="Çıkış">✕</button>
       </div>
     </div>
@@ -652,6 +654,38 @@ td{padding:9px 11px;vertical-align:middle}
   </div>
 </div>
 
+<!-- ── Parola Değiştir Modal ── -->
+<div class="overlay" id="changePwOverlay" onclick="closeChangePw(event)">
+  <div class="modal" style="width:380px;max-width:96vw" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-title">🔑 Parola Değiştir</div>
+      <button class="modal-close" onclick="closeChangePw()">✕</button>
+    </div>
+    <div style="padding:8px 4px 0">
+      <div style="margin-bottom:14px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Mevcut Parola</label>
+        <input type="password" id="cpwCurrent" autocomplete="current-password"
+          style="width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Yeni Parola <span style="opacity:.6">(en az 8 karakter)</span></label>
+        <input type="password" id="cpwNew" autocomplete="new-password"
+          style="width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:20px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Yeni Parola (Tekrar)</label>
+        <input type="password" id="cpwConfirm" autocomplete="new-password"
+          style="width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box">
+      </div>
+      <div id="cpwError" style="font-size:13px;color:var(--critical);margin-bottom:12px;display:none"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--border)">
+        <button class="btn btn-ghost" onclick="closeChangePw()">İptal</button>
+        <button class="btn btn-primary" onclick="submitChangePw()">💾 Güncelle</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Detay Modal ── -->
 <div class="overlay" id="overlay" onclick="closeModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
@@ -720,6 +754,7 @@ const API = '';
 let token       = localStorage.getItem('fw_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('fw_user') || 'null');
 let isAdmin     = false;
+let isEditor    = false;
 let allFindings = [];
 let activeDevice    = 'all';
 let currentFinding  = null;
@@ -797,16 +832,17 @@ function doLogout() {
 function showApp() {
   document.getElementById('loginScreen').classList.remove('show');
   document.getElementById('app').classList.add('show');
-  isAdmin = currentUser?.role === 'admin';
+  isAdmin  = currentUser?.role === 'admin';
+  isEditor = currentUser?.role === 'editor';
 
   const name = currentUser?.username || '?';
   document.getElementById('userAvatar').textContent = name[0].toUpperCase();
   document.getElementById('userName').textContent   = currentUser?.full_name || name;
   const rb = document.getElementById('roleBadge');
-  rb.textContent = isAdmin ? 'Admin' : 'Okuma';
-  rb.className   = 'role-badge ' + (isAdmin ? 'admin' : 'readonly');
+  rb.textContent = isAdmin ? 'Admin' : isEditor ? 'Editor' : 'Okuma';
+  rb.className   = 'role-badge ' + (isAdmin ? 'admin' : isEditor ? 'editor' : 'readonly');
 
-  document.getElementById('scanBtn').style.display     = isAdmin ? 'flex' : 'none';
+  document.getElementById('scanBtn').style.display     = (isAdmin || isEditor) ? 'flex' : 'none';
   document.getElementById('usersBtn').style.display    = isAdmin ? 'flex' : 'none';
   document.getElementById('settingsBtn').style.display = isAdmin ? 'flex' : 'none';
 
@@ -1230,7 +1266,7 @@ function openModal(idx) {
       </div>
     </div>` : '';
 
-  const stEditor = isAdmin ? `
+  const stEditor = (isAdmin || isEditor) ? `
     <div class="status-editor">
       <div class="dlabel">Durum Güncelle (Admin)</div>
       <div class="status-row">
@@ -1761,6 +1797,45 @@ async function openSettings() {
   await loadSettingsForm();
 }
 
+function openChangePw() {
+  document.getElementById('changePwOverlay').classList.add('open');
+  document.getElementById('cpwCurrent').value = '';
+  document.getElementById('cpwNew').value     = '';
+  document.getElementById('cpwConfirm').value = '';
+  document.getElementById('cpwError').style.display = 'none';
+  setTimeout(() => document.getElementById('cpwCurrent').focus(), 100);
+}
+
+function closeChangePw(e) {
+  if (!e || e.target === document.getElementById('changePwOverlay'))
+    document.getElementById('changePwOverlay').classList.remove('open');
+}
+
+async function submitChangePw() {
+  const cur  = document.getElementById('cpwCurrent').value;
+  const nw   = document.getElementById('cpwNew').value;
+  const conf = document.getElementById('cpwConfirm').value;
+  const errEl = document.getElementById('cpwError');
+
+  const showErr = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  errEl.style.display = 'none';
+
+  if (!cur || !nw || !conf) { showErr('Tüm alanlar zorunludur.'); return; }
+  if (nw.length < 8)         { showErr('Yeni parola en az 8 karakter olmalıdır.'); return; }
+  if (nw !== conf)            { showErr('Yeni parola ile tekrarı eşleşmiyor.'); return; }
+
+  const r = await api('/api/auth/me/password', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({current_password: cur, new_password: nw}),
+  });
+  if (!r) { showErr('Bağlantı hatası.'); return; }
+  const d = await r.json();
+  if (!r.ok) { showErr(d.detail || 'Hata oluştu.'); return; }
+  closeChangePw();
+  showToast('Parola başarıyla güncellendi ✓', 'success');
+}
+
 function closeSettings(e) {
   if (!e || e.target === document.getElementById('settingsOverlay'))
     document.getElementById('settingsOverlay').classList.remove('open');
@@ -1920,7 +1995,7 @@ async function renderUsers() {
     <tr>
       <td><span class="active-dot ${u.is_active?'on':'off'}"></span>${esc(u.username)}</td>
       <td>${esc(u.full_name||'—')}</td>
-      <td><span class="role-badge ${u.role}">${u.role==='admin'?'Admin':'Okuma'}</span></td>
+      <td><span class="role-badge ${u.role}">${u.role==='admin'?'Admin':u.role==='editor'?'Editor':'Okuma'}</span></td>
       <td>${new Date(u.created_at).toLocaleDateString('tr-TR')}</td>
       <td style="display:flex;gap:5px;flex-wrap:wrap">
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="toggleUser(${u.id}, this)">

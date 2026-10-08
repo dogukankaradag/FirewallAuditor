@@ -31,6 +31,7 @@ from .auth import (
     ensure_default_users,
     get_current_user,
     require_admin,
+    require_editor_or_admin,
     SECRET_KEY,
     ALGORITHM,
 )
@@ -403,6 +404,27 @@ def me(current_user: db_models.User = Depends(get_current_user)):
     }
 
 
+@app.post("/api/auth/me/password")
+def change_own_password(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_user),
+):
+    """Giriş yapan kullanıcının kendi parolasını değiştirir."""
+    current_pw  = body.get("current_password", "")
+    new_pw      = body.get("new_password", "")
+    if not current_pw or not new_pw:
+        raise HTTPException(400, "Mevcut ve yeni parola zorunludur.")
+    if len(new_pw) < 8:
+        raise HTTPException(400, "Yeni parola en az 8 karakter olmalıdır.")
+    from .auth import verify_password, hash_password as _hp
+    if not verify_password(current_pw, current_user.hashed_password):
+        raise HTTPException(400, "Mevcut parola hatalı.")
+    current_user.hashed_password = _hp(new_pw)
+    db.commit()
+    return {"ok": True, "message": "Parola başarıyla güncellendi."}
+
+
 @app.get("/api/auth/users")
 def list_users(
     db: Session = Depends(get_db),
@@ -424,8 +446,8 @@ def create_new_user(
 ):
     if db.query(db_models.User).filter(db_models.User.username == body.username).first():
         raise HTTPException(400, detail="Bu kullanıcı adı zaten kullanılıyor.")
-    if body.role not in ("admin", "readonly"):
-        raise HTTPException(400, detail="Rol 'admin' veya 'readonly' olmalıdır.")
+    if body.role not in ("admin", "editor", "readonly"):
+        raise HTTPException(400, detail="Rol 'admin', 'editor' veya 'readonly' olmalıdır.")
     user = create_user(db, body.username, body.password, body.role, body.full_name or "")
     return {"id": user.id, "username": user.username, "role": user.role}
 
@@ -456,8 +478,8 @@ def edit_user(
     user = db.query(db_models.User).filter(db_models.User.id == user_id).first()
     if not user:
         raise HTTPException(404, "Kullanıcı bulunamadı.")
-    if body.role and body.role not in ("admin", "readonly"):
-        raise HTTPException(400, "Rol 'admin' veya 'readonly' olmalıdır.")
+    if body.role and body.role not in ("admin", "editor", "readonly"):
+        raise HTTPException(400, "Rol 'admin', 'editor' veya 'readonly' olmalıdır.")
     if body.full_name is not None:
         user.full_name = body.full_name
     if body.role is not None:
@@ -618,7 +640,7 @@ _scan_lock = threading.Lock()
 def trigger_scan(
     body: ScanRequest = ScanRequest(),
     db: Session = Depends(get_db),
-    current: db_models.User = Depends(require_admin),
+    current: db_models.User = Depends(require_editor_or_admin),
 ):
     # Eş zamanlı taramayı engelle
     running = db.query(db_models.ScanSession).filter(
@@ -1123,7 +1145,7 @@ def update_finding_status(
     fingerprint: str,
     body: FindingStatusUpdate,
     db: Session = Depends(get_db),
-    current: db_models.User = Depends(require_admin),
+    current: db_models.User = Depends(require_editor_or_admin),
 ):
     valid = {"open", "acknowledged", "in_progress", "resolved"}
     if body.status not in valid:

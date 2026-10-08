@@ -1,10 +1,13 @@
 """
 JWT tabanlı kimlik doğrulama.
-Roller: admin (tam yetki) | readonly (sadece görüntüleme ve Excel export)
+Roller: admin (tam yetki) | editor (tara/düzenle, ayarlar yok, kullanıcı yönetimi yok) | readonly (sadece görüntüleme ve Excel export)
 """
 
+import logging
 import os
+import secrets
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 from jose import JWTError, jwt
@@ -16,8 +19,46 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from . import db_models
 
-# Üretimde ortam değişkeniyle override et
-SECRET_KEY = os.getenv("SECRET_KEY", "fw-audit-dev-secret-change-in-prod-2024!")
+log = logging.getLogger(__name__)
+
+
+def _load_secret_key() -> str:
+    """JWT imzalama anahtarı.
+
+    Öncelik: SECRET_KEY ortam değişkeni → proje kökündeki .secret_key dosyası.
+    Dosya yoksa ilk açılışta rastgele bir anahtar üretilip oraya yazılır (git'e girmez).
+    Koda gömülü sabit bir anahtar YOKTUR; aksi halde anahtarı bilen herkes admin token'ı üretebilir.
+    """
+    env_key = os.getenv("SECRET_KEY", "").strip()
+    if env_key == "fw-audit-dev-secret-change-in-prod-2024!":
+        log.error("SECRET_KEY eski, herkesçe bilinen varsayılan değere ayarlı; yok sayılıyor.")
+        env_key = ""
+    if env_key:
+        if len(env_key) < 32:
+            log.warning("SECRET_KEY 32 karakterden kısa; daha uzun rastgele bir değer önerilir.")
+        return env_key
+    path = Path(os.getenv("SECRET_KEY_FILE", Path(__file__).resolve().parent.parent / ".secret_key"))
+    try:
+        if path.exists():
+            key = path.read_text(encoding="utf-8").strip()
+            if len(key) >= 32:
+                return key
+        key = secrets.token_urlsafe(48)
+        path.write_text(key, encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        log.warning("Yeni JWT imzalama anahtarı oluşturuldu: %s", path)
+        return key
+    except OSError as e:
+        # Dosyaya yazılamazsa geçici anahtar: uygulama çalışır ama her yeniden başlatmada oturumlar düşer
+        log.error("SECRET_KEY dosyası yazılamadı (%s); geçici anahtar kullanılıyor. "
+                  "SECRET_KEY ortam değişkenini tanımlayın.", e)
+        return secrets.token_urlsafe(48)
+
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM  = "HS256"
 TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS", "8"))
 
@@ -80,6 +121,16 @@ def require_admin(current_user: db_models.User = Depends(get_current_user)) -> d
     return current_user
 
 
+def require_editor_or_admin(current_user: db_models.User = Depends(get_current_user)) -> db_models.User:
+    """Admin veya Firewall Editor rolüne izin verir."""
+    if current_user.role not in ("admin", "editor"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu işlem için admin veya editor yetkisi gereklidir.",
+        )
+    return current_user
+
+
 # ── Kullanıcı yardımcıları ────────────────────────────────────────────
 
 def authenticate_user(db: Session, username: str, password: str) -> Optional[db_models.User]:
@@ -111,21 +162,43 @@ def create_user(
     return user
 
 
+# Eski sürümlerin kodda yazılı varsayılan parolaları — hâlâ kullanılıyorsa açılışta uyarılır
+_LEGACY_DEFAULTS = {"admin": "Admin1234!", "readonly": "Readonly1234!"}
+
+
 def ensure_default_users(db: Session) -> None:
-    """İlk çalıştırmada varsayılan kullanıcıları oluşturur."""
+    """İlk çalıştırmada yalnızca admin kullanıcısını oluşturur.
+
+    Parola ADMIN_PASSWORD ortam değişkeninden alınır; yoksa rastgele üretilir ve
+    yalnızca bu ilk açılışta konsola yazdırılır. Koda gömülü varsayılan parola yoktur.
+    Diğer kullanıcılar arayüzdeki Kullanıcılar ekranından eklenir.
+    """
     if db.query(db_models.User).count() > 0:
+        _warn_legacy_passwords(db)
         return
 
-    defaults = [
-        ("admin",    "Admin1234!",    "admin",    "Sistem Yöneticisi"),
-        ("readonly", "Readonly1234!", "readonly", "Salt Okunur Kullanıcı"),
-    ]
-    for username, password, role, full_name in defaults:
-        create_user(db, username, password, role, full_name)
+    from_env = bool(os.getenv("ADMIN_PASSWORD"))
+    password = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+    create_user(db, "admin", password, "admin", "Sistem Yöneticisi")
 
-    print("\n" + "="*55)
-    print("  🔐 Varsayılan kullanıcılar oluşturuldu:")
-    print("     admin    / Admin1234!    (tam yetki)")
-    print("     readonly / Readonly1234! (salt okunur)")
-    print("  ⚠️  Üretimde parolaları değiştirin!")
-    print("="*55 + "\n")
+    print("\n" + "=" * 60)
+    print("  🔐 İlk admin kullanıcısı oluşturuldu")
+    if from_env:
+        print("     admin / (ADMIN_PASSWORD ortam değişkenindeki parola)")
+    else:
+        print(f"     admin / {password}")
+        print("  ⚠️  Bu parola bir daha gösterilmeyecek; giriş yapıp değiştirin.")
+    print("=" * 60 + "\n")
+
+
+def _warn_legacy_passwords(db: Session) -> None:
+    for username, legacy in _LEGACY_DEFAULTS.items():
+        user = db.query(db_models.User).filter(
+            db_models.User.username == username,
+            db_models.User.is_active == True,
+        ).first()
+        if user and verify_password(legacy, user.hashed_password):
+            msg = (f"GÜVENLİK UYARISI: '{username}' kullanıcısı hâlâ eski varsayılan parolayı kullanıyor. "
+                   f"Kullanıcılar ekranından hemen değiştirin.")
+            log.warning(msg)
+            print("\n⚠️  " + msg + "\n")
