@@ -259,23 +259,26 @@ class PaloAltoClient:
     def get_rule_audit_log(self, rule_name: str, max_entries: int = 25) -> list[dict]:
         """
         Monitor → Configuration log'dan belirli bir kural için geçmişi çeker.
-        PA log API asenkron çalışabilir; job polling ile max 5 sn bekler.
+        PA log API asenkron çalışabilir; job polling ile max 10 sn bekler.
+        Query filtresi yerine son 200 config kaydı çekilip Python tarafında
+        rule_name'e göre filtrelenir (PA query sözdizimi sürüme göre farklı).
         """
         import time
 
-        # Log query gönder — bazı sürümler doğrudan, bazıları job ile döner
+        fetch_count = min(max_entries * 8, 200)
+
+        # Filtre olmadan son N config log kaydını çek
         root = self._api_get({
-            "type":    "log",
+            "type":     "log",
             "log-type": "config",
-            "query":   f"( path contains \'{rule_name}\' )",
-            "nlogs":   str(max_entries),
-            "dir":     "backward",
+            "nlogs":    str(fetch_count),
+            "dir":      "backward",
         }, timeout=30)
 
         # Job tabanlı yanıt mı?
         job_id = root.findtext(".//job")
         if job_id:
-            for _ in range(10):  # max 5 sn (10 × 0.5s)
+            for _ in range(20):  # max 10 sn (20 × 0.5s)
                 time.sleep(0.5)
                 try:
                     result = self._api_get({
@@ -291,16 +294,25 @@ class PaloAltoClient:
                     break
 
         entries = []
+        rule_lower = rule_name.lower()
         for entry in root.findall(".//entry"):
+            path = entry.findtext("path", "") or ""
+            desc = entry.findtext("desc", "") or ""
+            cmd  = entry.findtext("cmd",  "") or ""
+            # rule_name path veya desc alanında geçiyorsa dahil et
+            if rule_lower not in path.lower() and rule_lower not in desc.lower():
+                continue
             entries.append({
-                "admin":    entry.findtext("admin",   "") or "",
-                "host":     entry.findtext("client",  "") or "",
-                "command":  entry.findtext("cmd",     "") or "",
-                "result":   entry.findtext("result",  "") or "",
-                "path":     entry.findtext("path",    "") or "",
-                "time":     entry.findtext("time",    "") or "",
-                "before":   (entry.findtext("before-change-detail", "") or "")[:120],
-                "after":    (entry.findtext("after-change-detail",  "") or "")[:120],
+                "admin":   entry.findtext("admin",   "") or "",
+                "host":    entry.findtext("client",  "") or "",
+                "command": cmd,
+                "result":  entry.findtext("result",  "") or "",
+                "path":    path,
+                "time":    entry.findtext("time",    "") or "",
+                "before":  (entry.findtext("before-change-detail", "") or "")[:120],
+                "after":   (entry.findtext("after-change-detail",  "") or "")[:120],
             })
+            if len(entries) >= max_entries:
+                break
         return entries
 

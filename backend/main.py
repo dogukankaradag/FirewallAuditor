@@ -1050,8 +1050,15 @@ def finding_history(
             None,
         )
         if not dev:
-            return {"entries": [], "source": "fortimanager",
-                    "message": "Bu cihaz için gerçek bağlantı tanımlanmamış veya mock modda."}
+            # Mock/tanımsız cihaz — rule_details'ten mevcut anlık görüntüyü döndür
+            rd = finding.rule_details or {}
+            snapshot = {k: v for k, v in rd.items() if not k.startswith("_")}
+            return {
+                "entries":  [],
+                "source":   "fortimanager",
+                "message":  "Gerçek FM bağlantısı yok (mock mod). Kural detayları tarama anındaki değerleri yansıtır.",
+                "snapshot": snapshot,
+            }
 
         adom_name = finding.customer
         rule_details = finding.rule_details or {}
@@ -1091,6 +1098,16 @@ def finding_history(
         try:
             client.login()
             entries = client.get_rule_audit_log(finding.rule_name)
+            if not entries:
+                return {
+                    "entries": [],
+                    "source":  "paloalto",
+                    "message": (
+                        "Bu kural için config audit log kaydı bulunamadı. "
+                        "PA Monitor → Configuration log'u etkinleştirilmemiş "
+                        "veya bu kural henüz değiştirilmemiş olabilir."
+                    ),
+                }
             return {"entries": entries, "source": "paloalto"}
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Palo Alto Config Log alınamadı: {exc}")
