@@ -375,20 +375,7 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
                     details,
                 ))
 
-        # ── KRİTİK 3: Log Kapalı ──────────────────────────────────────────
-        if action == "accept" and log in FM_LOG_DISABLED:
-            findings.append(_finding(
-                Platform.FORTIMANAGER, device_name, customer, pid, pname,
-                Severity.CRITICAL,
-                "Log Kapalı",
-                "İzin kuralında trafik loglama devre dışı bırakılmış. "
-                "Güvenlik olayları kayıt altına alınamıyor.",
-                "logtraffic değerini en az 'utm' veya 'all' yapın. "
-                "SIEM entegrasyonu için log zorunludur.",
-                details,
-            ))
-
-        # ── KRİTİK 4: Geniş Kaynak Subnet ────────────────────────────────
+        # ── KRİTİK 3: Geniş Kaynak Subnet ────────────────────────────────
         for addr in src:
             if any(addr.endswith(p) for p in BROAD_PREFIXES):
                 findings.append(_finding(
@@ -590,18 +577,6 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 "Kural belirli bir uygulama kısıtlaması içermiyor (application: any). "
                 "Tüm uygulamaların bu kural üzerinden geçmesine izin veriliyor.",
                 "App-ID kullanarak yalnızca gerekli uygulamaları açıkça tanımlayın.",
-                details,
-            ))
-
-        # ── KRİTİK: Log Kapalı ───────────────────────────────────────────
-        if action == "allow" and not log_end and not log_start:
-            findings.append(_finding(
-                Platform.PALOALTO, device_name, customer, rname, rname,
-                Severity.CRITICAL,
-                "Log Kapalı",
-                "Allow kuralında log-end ve log-start her ikisi de kapalı. "
-                "Trafik kayıt altına alınmıyor.",
-                "En az log-end: yes ayarlayın. Kritik kurallar için log-start da aktif edin.",
                 details,
             ))
 

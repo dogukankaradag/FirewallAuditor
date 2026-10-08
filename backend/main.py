@@ -752,6 +752,59 @@ def get_summary(
     }
 
 
+@app.get("/api/scan/history/{session_id}/devices")
+def scan_session_devices(
+    session_id: int,
+    db: Session = Depends(get_db),
+    _: db_models.User = Depends(get_current_user),
+):
+    """
+    Belirli bir tarama session'ının cihaz / ADOM / VSYS dökümünü döner.
+    Geçmiş modalında cihaz detayları için kullanılır.
+    """
+    rows = (
+        db.query(
+            db_models.ScanResult.device_host,
+            db_models.ScanResult.device_label,
+            db_models.ScanResult.platform,
+            db_models.ScanResult.device_name,
+            db_models.ScanResult.customer,
+            db_models.ScanResult.total_rules,
+        )
+        .filter(db_models.ScanResult.session_id == session_id)
+        .order_by(
+            db_models.ScanResult.platform,
+            db_models.ScanResult.device_host,
+            db_models.ScanResult.device_label,
+            db_models.ScanResult.customer,
+        )
+        .all()
+    )
+
+    # Cihaz (host+label) bazında grupla
+    device_map: dict = {}
+    device_order: list = []
+    for r in rows:
+        key = (r.platform, r.device_host or "", r.device_label or r.device_name)
+        if key not in device_map:
+            device_map[key] = {
+                "platform":     r.platform,
+                "device_host":  r.device_host or "",
+                "device_label": r.device_label or r.device_name,
+                "children":     [],
+                "total_rules":  0,
+            }
+            device_order.append(key)
+        device_map[key]["children"].append({
+            "name":       r.device_name,
+            "customer":   r.customer,
+            "total_rules": r.total_rules or 0,
+        })
+        device_map[key]["total_rules"] += r.total_rules or 0
+
+    return [device_map[k] for k in device_order]
+
+
 @app.get("/api/devices")
 def get_devices(
     db: Session = Depends(get_db),

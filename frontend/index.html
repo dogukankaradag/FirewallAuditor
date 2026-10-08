@@ -126,6 +126,15 @@ aside{
 .badge.high{background:rgba(230,126,34,.2);color:var(--high)}
 .badge.medium{background:rgba(241,196,15,.2);color:var(--medium)}
 .badge.low{background:rgba(39,174,96,.2);color:var(--low)}
+/* History device breakdown */
+.hist-table{width:100%;border-collapse:collapse;font-size:12px}
+.hist-table th{padding:7px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.hist-table td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.04)}
+.hist-table tr:hover td{background:var(--surface2)}
+.hist-dev-row td{background:rgba(79,142,247,.05);font-weight:600}
+.hist-dev-expand{cursor:pointer;user-select:none;color:var(--accent)}
+.hist-child-row td{padding:4px 10px 4px 28px;font-size:11px;color:var(--muted)}
+.hist-child-row.hidden{display:none}
 /* Accordion device groups */
 .dev-group{margin-bottom:2px}
 .dev-grp-hdr{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:7px;cursor:pointer;transition:background .12s}
@@ -597,7 +606,7 @@ td{padding:9px 11px;vertical-align:middle}
 
 <!-- ── Kullanıcı yönetim modal ── -->
 <div class="overlay" id="usersOverlay" onclick="closeUsers(event)">
-  <div class="modal" style="width:700px" onclick="event.stopPropagation()">
+  <div class="modal" style="width:800px;max-height:85vh;display:flex;flex-direction:column" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <div class="modal-title">👥 Kullanıcı Yönetimi</div>
       <button class="modal-close" onclick="closeUsers()">✕</button>
@@ -1476,7 +1485,11 @@ async function openHistory() {
            onclick="loadHistoricalSession(${s.id},'${dateStr}');closeHistory();">
            ${isViewing ? '👁 Görüntüleniyor' : '📅 Geçmişe Dön'}</button>`
       : '';
-    return `<tr>
+    const detailBtn = s.status === 'completed'
+      ? `<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px" title="Cihaz detaylarını göster"
+           onclick="toggleHistDevices(${s.id}, this)">🖥 Cihazlar</button>`
+      : '';
+    return `<tr class="hist-main-row">
       <td>${dot}${s.status==='completed'?'Tamamlandı':s.status==='running'?'Çalışıyor':'Başarısız'}</td>
       <td>${dateStr}</td>
       <td>${esc(s.triggered_by)}</td>
@@ -1484,14 +1497,84 @@ async function openHistory() {
       <td>${s.total_rules}</td>
       <td><strong style="color:var(--critical)">${s.total_findings}</strong></td>
       <td>${dur}</td>
-      <td>${goBtn}</td>
+      <td style="white-space:nowrap">${goBtn}${detailBtn}</td>
+    </tr>
+    <tr id="hist-dev-${s.id}" style="display:none">
+      <td colspan="8" style="padding:0;background:var(--surface2)">
+        <div id="hist-dev-body-${s.id}" style="padding:10px 14px;font-size:12px;color:var(--muted)">Yükleniyor...</div>
+      </td>
     </tr>`;
   }).join('');
   document.getElementById('histBody').innerHTML = `
+    <div style="overflow-y:auto;max-height:70vh">
     <table class="hist-table">
       <thead><tr><th>Durum</th><th>Başlangıç</th><th>Tetikleyen</th><th>Cihaz</th><th>Kural</th><th>Bulgu</th><th>Süre</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Tarama geçmişi bulunamadı</td></tr>'}</tbody>
-    </table>`;
+    </table></div>`;
+}
+
+const _histDevCache = {};
+async function toggleHistDevices(sessionId, btn) {
+  const row = document.getElementById('hist-dev-' + sessionId);
+  if (!row) return;
+  const visible = row.style.display !== 'none';
+  if (visible) { row.style.display = 'none'; btn.style.background = ''; return; }
+  btn.style.background = 'rgba(79,142,247,.15)';
+  row.style.display = '';
+  if (_histDevCache[sessionId]) {
+    document.getElementById('hist-dev-body-' + sessionId).innerHTML = _histDevCache[sessionId];
+    return;
+  }
+  const res = await api('/api/scan/history/' + sessionId + '/devices');
+  if (!res) return;
+  const devices = await res.json();
+  _histDevCache[sessionId] = _renderHistDevices(devices);
+  document.getElementById('hist-dev-body-' + sessionId).innerHTML = _histDevCache[sessionId];
+}
+
+function _renderHistDevices(devices) {
+  if (!devices.length) return '<em>Cihaz verisi yok</em>';
+  // Group by platform
+  const fm = devices.filter(d => d.platform === 'fortimanager');
+  const pa = devices.filter(d => d.platform === 'paloalto');
+  let html = '<div style="display:flex;gap:24px;flex-wrap:wrap">';
+
+  function renderGroup(list, label, color) {
+    if (!list.length) return '';
+    let s = `<div style="flex:1;min-width:220px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:${color};margin-bottom:6px">${label}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Cihaz</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">ADOM/VSYS</th>
+          <th style="text-align:right;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Kural</th>
+        </tr></thead>
+        <tbody>`;
+    list.forEach((d, i) => {
+      const devName = (d.device_host && d.device_label)
+        ? `${d.device_host}-${d.device_label}`
+        : (d.device_label || d.device_host || '?');
+      const firstChild = d.children[0];
+      const rowspan = d.children.length;
+      s += `<tr style="${i>0?'border-top:1px solid var(--border)':''}">
+        <td rowspan="${rowspan}" style="padding:4px 6px;font-weight:600;vertical-align:top;border-right:1px solid var(--border)">${esc(devName)}</td>
+        <td style="padding:3px 6px">${esc(firstChild.customer || firstChild.name)}</td>
+        <td style="padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums">${firstChild.total_rules}</td>
+      </tr>`;
+      for (let j = 1; j < d.children.length; j++) {
+        const c = d.children[j];
+        s += `<tr><td style="padding:3px 6px">${esc(c.customer || c.name)}</td>
+          <td style="padding:3px 6px;text-align:right">${c.total_rules}</td></tr>`;
+      }
+    });
+    s += `</tbody></table></div>`;
+    return s;
+  }
+
+  html += renderGroup(fm, 'FortiManager', 'var(--fm)');
+  html += renderGroup(pa, 'Palo Alto', 'var(--pa)');
+  html += '</div>';
+  return html;
 }
 function closeHistory(e) {
   if (!e || e.target === document.getElementById('histOverlay'))
