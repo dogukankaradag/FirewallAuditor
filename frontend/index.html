@@ -126,6 +126,14 @@ aside{
 .badge.high{background:rgba(230,126,34,.2);color:var(--high)}
 .badge.medium{background:rgba(241,196,15,.2);color:var(--medium)}
 .badge.low{background:rgba(39,174,96,.2);color:var(--low)}
+/* Accordion device groups */
+.dev-group{margin-bottom:2px}
+.dev-grp-hdr{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:7px;cursor:pointer;transition:background .12s}
+.dev-grp-hdr:hover{background:var(--surface2)}
+.dev-grp-chev{font-size:11px;color:var(--muted);flex-shrink:0;width:12px;text-align:center}
+.dev-grp-body{padding-left:10px;border-left:2px solid var(--border);margin-left:9px;margin-bottom:2px}
+.dev-item.child{padding:5px 8px}
+.dev-item.child .dev-name{font-size:12px}
 
 /* Main */
 main{flex:1;display:flex;flex-direction:column;overflow:hidden}
@@ -1024,6 +1032,63 @@ async function triggerScan(deviceIds) {
 function exportExcel() { window.location.href = API + '/api/report/excel?token=' + encodeURIComponent(token); }
 
 /* ── Render: cihazlar ──────────────────────────────────────────── */
+const devGroupOpen = {};
+
+function toggleDevGroup(gid) {
+  devGroupOpen[gid] = !devGroupOpen[gid];
+  const body = document.getElementById(gid + '_body');
+  const chev = document.getElementById(gid + '_chev');
+  if (body) body.style.display = devGroupOpen[gid] ? '' : 'none';
+  if (chev) chev.textContent = devGroupOpen[gid] ? '\u25be' : '\u25b8';
+}
+
+function renderPlatformGroups(devices) {
+  const groups = {}, order = [];
+  devices.forEach(d => {
+    const key = d.host ? d.host : ('__' + d.id);
+    if (!groups[key]) {
+      groups[key] = { host: d.host, label: d.label || d.name, items: [] };
+      order.push(key);
+    }
+    groups[key].items.push(d);
+  });
+
+  let html = '';
+  order.forEach(key => {
+    const grp = groups[key];
+    if (grp.items.length <= 1) {
+      html += devItem(grp.items[0], false);
+      return;
+    }
+    const gid = 'grp_' + key.replace(/[^a-zA-Z0-9]/g, '_');
+    const hasActive = grp.items.some(d => d.id === activeDevice);
+    if (devGroupOpen[gid] === undefined) devGroupOpen[gid] = hasActive;
+    const isOpen = devGroupOpen[gid];
+    const headerName = grp.host
+      ? grp.host + (grp.label && grp.label !== grp.host ? '-' + grp.label : '')
+      : grp.label;
+    const agg = {acil:0, critical:0};
+    grp.items.forEach(d => { agg.acil += d.findings?.acil||0; agg.critical += d.findings?.critical||0; });
+    const badges = Object.entries(agg).filter(([,v])=>v>0)
+      .map(([s,v])=>`<span class="badge ${s}">${v}</span>`).join('');
+
+    html += `<div class="dev-group">
+      <div class="dev-grp-hdr" onclick="toggleDevGroup('${gid}')">
+        <span class="dev-grp-chev" id="${gid}_chev">${isOpen?'\u25be':'\u25b8'}</span>
+        <div style="flex:1;min-width:0">
+          <div class="dev-name" style="font-size:12px">${esc(headerName)}</div>
+          <div class="dev-cust">${grp.items.length} cihaz</div>
+        </div>
+        <div class="badges">${badges}</div>
+      </div>
+      <div class="dev-grp-body" id="${gid}_body" ${isOpen?'':'style="display:none"'}>
+        ${grp.items.map(d => devItem(d, true)).join('')}
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
 function renderDevices(devices) {
   const fm = devices.filter(d => d.platform === 'fortimanager');
   const pa = devices.filter(d => d.platform === 'paloalto');
@@ -1031,25 +1096,26 @@ function renderDevices(devices) {
     <div><div class="dev-name">Tüm Cihazlar</div></div></div>`;
   if (fm.length) {
     html += `<div style="margin-top:6px"><div class="plat-label"><span class="plat-dot fm"></span>FortiManager</div>`;
-    fm.forEach(d => html += devItem(d));
+    html += renderPlatformGroups(fm);
     html += '</div>';
   }
   if (pa.length) {
     html += `<div style="margin-top:4px"><div class="plat-label"><span class="plat-dot pa"></span>Palo Alto</div>`;
-    pa.forEach(d => html += devItem(d));
+    html += renderPlatformGroups(pa);
     html += '</div>';
   }
   document.getElementById('deviceList').innerHTML = html;
 }
 
-function devItem(d) {
+function devItem(d, child=false) {
   const a = activeDevice === d.id ? 'active' : '';
-  const b = ['acil','critical','high','medium','low']
+  const childCls = child ? ' child' : '';
+  const b = ['acil','critical']
     .filter(s => (d.findings?.[s] ?? 0) > 0)
     .map(s => `<span class="badge ${s}">${d.findings[s]}</span>`).join('');
   const displayName = d.label && d.label !== d.name ? d.label : d.name;
-  const hostLine    = d.host ? `<div class="dev-host">${esc(d.host)}</div>` : '';
-  return `<div class="dev-item ${a}" onclick="selectDevice('${d.id}',this)">
+  const hostLine = (!child && d.host) ? `<div class="dev-host">${esc(d.host)}</div>` : '';
+  return `<div class="dev-item${childCls} ${a}" onclick="selectDevice('${d.id}',this)">
     <div style="flex:1;min-width:0">
       <div class="dev-name">${esc(displayName)}</div>
       ${hostLine}
