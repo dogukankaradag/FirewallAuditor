@@ -252,13 +252,13 @@ def _save_security_profiles(
     db.flush()
 
 
-def _do_scan(db: Session, triggered_by: str = "manual") -> db_models.ScanSession:
+def _do_scan(db: Session, triggered_by: str = "manual", device_ids: Optional[list[str]] = None) -> db_models.ScanSession:
     """ScanSession oluşturup _do_scan_core'u çağırır (scheduler/startup için)."""
     session = db_models.ScanSession(triggered_by=triggered_by, status="running")
     db.add(session)
     db.commit()
     db.refresh(session)
-    _do_scan_core(db, session)
+    _do_scan_core(db, session, device_ids=device_ids)
     db.refresh(session)
     return session
 
@@ -267,7 +267,10 @@ def _scheduled_scan():
     """APScheduler arka plan thread'inden çağrılır — kendi DB oturumunu açar."""
     db = SessionLocal()
     try:
-        sess = _do_scan(db, triggered_by="scheduler")
+        # Hangi cihazların taranacağını settings'ten oku (boş = hepsi)
+        raw_ids = get_setting(db, "scheduler_devices", "")
+        sched_device_ids = [x.strip() for x in raw_ids.split(",") if x.strip()] or None
+        sess = _do_scan(db, triggered_by="scheduler", device_ids=sched_device_ids)
         # Tarama tamamlandıktan sonra Acil bulguları mail ile bildir
         if sess and sess.id:
             try:
@@ -1306,6 +1309,7 @@ def save_settings(
     """
     ALLOWED = {
         "scheduler_enabled", "scheduler_hour", "scheduler_minute",
+        "scheduler_devices",   # virgülle ayrılmış device ID'leri (boş = hepsi)
         "mail_enabled", "mail_to", "mail_cc", "mail_subject",
         # SMTP sunucu ayarları (host/port/from/tls) .env dosyasından okunur
     }

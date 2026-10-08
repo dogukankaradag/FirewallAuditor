@@ -537,12 +537,13 @@ td{padding:9px 11px;vertical-align:middle}
 
 <!-- ── Ayarlar modal ── -->
 <div class="overlay" id="settingsOverlay" onclick="closeSettings(event)">
-  <div class="modal" style="width:480px;max-width:96vw" onclick="event.stopPropagation()">
+  <div class="modal" style="width:560px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <div class="modal-title">⚙️ Sistem Ayarları</div>
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
 
+    <div style="overflow-y:auto;flex:1;padding:0 4px">
     <!-- Zamanlayıcı -->
     <div style="margin-bottom:24px">
       <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">📅 Günlük Otomatik Tarama</div>
@@ -561,6 +562,19 @@ td{padding:9px 11px;vertical-align:middle}
           <input type="number" id="sSchedMin" min="0" max="59" style="width:72px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;text-align:center">
         </div>
         <div id="sSchedNextRun" style="font-size:12px;color:var(--muted);margin-top:18px;padding-left:6px"></div>
+      </div>
+    </div>
+
+    <!-- Otomatik tarama cihaz seçimi -->
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">🖥️ Taranacak Cihazlar</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Seçilmeyen cihazlar otomatik taramaya dahil edilmez. Hiçbiri seçilmezse tüm cihazlar taranır.</div>
+      <div id="sSchedDevices" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--bg)">
+        <span style="color:var(--muted);font-size:12px">Cihazlar yükleniyor…</span>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:10px">
+        <button class="btn btn-ghost" onclick="schedDevSelectAll(true)"  style="font-size:11px;padding:3px 10px">Tümünü Seç</button>
+        <button class="btn btn-ghost" onclick="schedDevSelectAll(false)" style="font-size:11px;padding:3px 10px">Temizle</button>
       </div>
     </div>
 
@@ -597,7 +611,8 @@ td{padding:9px 11px;vertical-align:middle}
       </div>
     </div>
 
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border)">
+    </div><!-- /scrollable -->
+    <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px 0 0;border-top:1px solid var(--border);flex-shrink:0">
       <button class="btn btn-ghost" onclick="closeSettings()">İptal</button>
       <button class="btn btn-primary" onclick="saveSettings()">💾 Kaydet</button>
     </div>
@@ -1761,6 +1776,10 @@ async function loadSettingsForm() {
     document.getElementById('sSchedHour').value      = s.scheduler_hour   ?? '2';
     document.getElementById('sSchedMin').value       = s.scheduler_minute ?? '0';
     document.getElementById('sMailEnabled').checked  = (s.mail_enabled    ?? '0') === '1';
+
+    // Cihaz seçimi — scheduler_devices boş ise hepsi seçili sayılır
+    const savedDevs = (s.scheduler_devices ?? '').split(',').map(x=>x.trim()).filter(Boolean);
+    await _loadSchedDevices(savedDevs);
     document.getElementById('sMailTo').value          = s.mail_to      ?? '';
     document.getElementById('sMailCc').value          = s.mail_cc      ?? '';
     document.getElementById('sMailSubject').value     = s.mail_subject ?? '';
@@ -1781,11 +1800,45 @@ async function loadSettingsForm() {
   } catch(e) { console.error('Ayarlar yüklenemedi', e); }
 }
 
+async function _loadSchedDevices(selectedIds) {
+  const box = document.getElementById('sSchedDevices');
+  if (!box) return;
+  try {
+    const r = await api('/api/connectors');
+    if (!r.ok) { box.innerHTML = '<span style="color:var(--muted);font-size:12px">Cihazlar yüklenemedi.</span>'; return; }
+    const devs = await r.json();
+    if (!devs.length) { box.innerHTML = '<span style="color:var(--muted);font-size:12px">Tanımlı cihaz bulunamadı.</span>'; return; }
+    // Hiç seçili yoksa tümünü işaretli göster
+    const allSelected = selectedIds.length === 0;
+    box.innerHTML = devs.map(d => {
+      const checked = allSelected || selectedIds.includes(d.id) ? 'checked' : '';
+      const badge = d.type === 'fortimanager' ? '🟦 FM' : '🟧 PA';
+      return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 2px">
+        <input type="checkbox" value="${esc(d.id)}" ${checked}
+          style="accent-color:var(--accent);width:14px;height:14px;flex-shrink:0">
+        <span style="font-size:12px">${badge} <strong>${esc(d.label)}</strong>
+          <span style="color:var(--muted);font-size:11px">${esc(d.host)}</span>
+        </span>
+      </label>`;
+    }).join('');
+  } catch(e) {
+    box.innerHTML = '<span style="color:var(--muted);font-size:12px">Yüklenemedi.</span>';
+  }
+}
+
+function schedDevSelectAll(checked) {
+  document.querySelectorAll('#sSchedDevices input[type=checkbox]')
+    .forEach(cb => cb.checked = checked);
+}
+
 async function saveSettings() {
+  const checkedDevs = [...document.querySelectorAll('#sSchedDevices input[type=checkbox]:checked')]
+    .map(cb => cb.value).join(',');
   const body = {
     scheduler_enabled: document.getElementById('sSchedEnabled').checked ? '1' : '0',
     scheduler_hour   : document.getElementById('sSchedHour').value,
     scheduler_minute : document.getElementById('sSchedMin').value,
+    scheduler_devices: checkedDevs,   // boş = tüm cihazlar
     mail_enabled     : document.getElementById('sMailEnabled').checked  ? '1' : '0',
     mail_to          : document.getElementById('sMailTo').value.trim(),
     mail_cc          : document.getElementById('sMailCc').value.trim(),
