@@ -251,3 +251,56 @@ class PaloAltoClient:
             })
 
         return {"vsys_list": vsys_list}
+
+    # ──────────────────────────────────────────────────────────────────────
+    #  On-demand: kural düzenleme geçmişi (Monitor → Config Log)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def get_rule_audit_log(self, rule_name: str, max_entries: int = 25) -> list[dict]:
+        """
+        Monitor → Configuration log'dan belirli bir kural için geçmişi çeker.
+        PA log API asenkron çalışabilir; job polling ile max 5 sn bekler.
+        """
+        import time
+
+        # Log query gönder — bazı sürümler doğrudan, bazıları job ile döner
+        root = self._api_get({
+            "type":    "log",
+            "log-type": "config",
+            "query":   f"( path contains \'{rule_name}\' )",
+            "nlogs":   str(max_entries),
+            "dir":     "backward",
+        }, timeout=30)
+
+        # Job tabanlı yanıt mı?
+        job_id = root.findtext(".//job")
+        if job_id:
+            for _ in range(10):  # max 5 sn (10 × 0.5s)
+                time.sleep(0.5)
+                try:
+                    result = self._api_get({
+                        "type":   "log",
+                        "action": "get",
+                        "jobid":  job_id,
+                    }, timeout=30)
+                    progress = result.findtext(".//percent", "0")
+                    if progress == "100":
+                        root = result
+                        break
+                except Exception:
+                    break
+
+        entries = []
+        for entry in root.findall(".//entry"):
+            entries.append({
+                "admin":    entry.findtext("admin",   "") or "",
+                "host":     entry.findtext("client",  "") or "",
+                "command":  entry.findtext("cmd",     "") or "",
+                "result":   entry.findtext("result",  "") or "",
+                "path":     entry.findtext("path",    "") or "",
+                "time":     entry.findtext("time",    "") or "",
+                "before":   (entry.findtext("before-change-detail", "") or "")[:120],
+                "after":    (entry.findtext("after-change-detail",  "") or "")[:120],
+            })
+        return entries
+

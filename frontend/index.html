@@ -1201,6 +1201,7 @@ function openModal(idx) {
     `<span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span>${esc(f.check_name)}`;
 
   const kvs = Object.entries(f.rule_details||{})
+    .filter(([k]) => !k.startsWith('_'))  // iç meta alanları gizle
     .map(([k,v]) => `<div class="dkv"><div class="dkv-k">${esc(k)}</div><div class="dkv-v">${esc(String(v))}</div></div>`)
     .join('');
 
@@ -1260,6 +1261,16 @@ function openModal(idx) {
       <div class="dlabel">✅ Öneri</div>
       <div class="rec-box">${esc(f.recommendation)}</div>
     </div>
+    <div class="dsec" id="ruleHistSection">
+      <div class="dlabel" style="display:flex;align-items:center;justify-content:space-between">
+        Kural Geçmişi
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" id="ruleHistBtn"
+          onclick="fetchRuleHistory('${f.fingerprint}')">📜 Geçmişi Yükle</button>
+      </div>
+      <div id="ruleHistBody" style="margin-top:6px;font-size:12px;color:var(--muted)">
+        <em>Yüklemek için butona tıklayın.</em>
+      </div>
+    </div>
     ${stEditor}
     <div style="font-size:11px;color:var(--muted);margin-top:12px">Tespit: ${new Date(f.detected_at).toLocaleString('tr-TR')}</div>`;
 
@@ -1285,6 +1296,77 @@ async function saveStatus() {
   if (!res || !res.ok) { alert('Güncelleme başarısız.'); return; }
   closeModal();
   applyFilters();
+}
+
+async function fetchRuleHistory(fingerprint) {
+  const btn  = document.getElementById('ruleHistBtn');
+  const body = document.getElementById('ruleHistBody');
+  if (!btn || !body) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Yükleniyor…';
+  body.innerHTML  = '<em style="color:var(--muted)">Cihazdan veri çekiliyor…</em>';
+
+  const res = await api('/api/findings/' + fingerprint + '/history');
+  btn.disabled = false;
+  btn.textContent = '🔄 Yenile';
+  if (!res) { body.innerHTML = '<em style="color:var(--critical)">Bağlantı hatası.</em>'; return; }
+  const data = await res.json();
+
+  if (!res.ok) {
+    body.innerHTML = `<em style="color:var(--critical)">${esc(data.detail||'Hata')}</em>`; return;
+  }
+  if (data.message && !data.entries?.length) {
+    body.innerHTML = `<em style="color:var(--muted)">${esc(data.message)}</em>`; return;
+  }
+  if (!data.entries?.length) {
+    body.innerHTML = '<em style="color:var(--muted)">Geçmiş kaydı bulunamadı.</em>'; return;
+  }
+
+  const src = data.source === 'fortimanager' ? 'FortiManager Revision History'
+            : data.source === 'paloalto'      ? 'Palo Alto Config Log'
+            : data.source;
+
+  if (data.source === 'fortimanager') {
+    const rows = data.entries.map(e => `<tr>
+      <td style="color:var(--muted)">${esc(e.revision)}</td>
+      <td style="font-weight:600">${esc(e.changed_by)||'—'}</td>
+      <td>${esc(e.changed_at)||'—'}</td>
+      <td>${esc(e.action)||'—'}</td>
+      <td style="color:var(--muted)">${esc(e.note)||'—'}</td>
+    </tr>`).join('');
+    body.innerHTML = `
+      <div style="font-size:10px;color:var(--accent);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">${src}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Rev</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Değiştiren</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Tarih</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">İşlem</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Not</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } else {
+    const rows = data.entries.map(e => `<tr>
+      <td style="color:var(--muted);white-space:nowrap">${esc(e.time)||'—'}</td>
+      <td style="font-weight:600">${esc(e.admin)||'—'}</td>
+      <td>${esc(e.command)||'—'}</td>
+      <td style="color:${e.result==='Succeeded'?'var(--low)':'var(--critical)'}">${esc(e.result)||'—'}</td>
+      <td style="font-size:10px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.path)}">${esc(e.path)||'—'}</td>
+    </tr>`).join('');
+    body.innerHTML = `
+      <div style="font-size:10px;color:var(--accent);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">${src}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Tarih</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Admin</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">İşlem</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Sonuç</th>
+          <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--muted)">Path</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
 }
 
 function closeModal(e) {

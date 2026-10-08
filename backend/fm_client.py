@@ -273,6 +273,8 @@ class FortiManagerClient:
             for pkg in packages:
                 try:
                     pols = self.get_policies(adom_name, pkg)
+                    for p in pols:
+                        p["_pkg_name"] = pkg  # on-demand revision history için
                     policies.extend(pols)
                     log.debug("  %s / %s → %d kural", adom_name, pkg, len(pols))
                 except Exception as exc:
@@ -322,3 +324,34 @@ class FortiManagerClient:
             }
         finally:
             self.logout()
+
+    # ──────────────────────────────────────────────────────────────────────
+    #  On-demand: kural düzenleme geçmişi
+    # ──────────────────────────────────────────────────────────────────────
+
+    def get_policy_revision_history(
+        self, adom: str, package: str, policyid: str | int
+    ) -> list[dict]:
+        """
+        Tek bir kural için FM revision history listesini döndürür.
+        Endpoint: GET /pm/config/adom/{adom}/pkg/{package}/firewall/policy/{policyid}/_revision
+        """
+        url = (f"/pm/config/adom/{adom}/pkg/{package}"
+               f"/firewall/policy/{policyid}/_revision")
+        data = self._rpc("get", [{"url": url}])
+        revisions = self._as_list(data)
+        result = []
+        for r in revisions:
+            if not isinstance(r, dict):
+                continue
+            result.append({
+                "revision":   str(r.get("_revision", r.get("id", "?"))),
+                "changed_by": str(r.get("_last_modified_by",
+                                        r.get("changed_by", "")) or ""),
+                "changed_at": str(r.get("_last_modified_time",
+                                        r.get("date", "")) or ""),
+                "action":     str(r.get("_action", r.get("action", "")) or ""),
+                "note":       str(r.get("_change_note", r.get("note", "")) or ""),
+            })
+        return result
+

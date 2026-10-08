@@ -1013,6 +1013,91 @@ def get_findings(
     return {"total": total, "page": page, "limit": limit, "findings": result_list}
 
 
+@app.get("/api/findings/{fingerprint}/history")
+def finding_history(
+    fingerprint: str,
+    db: Session = Depends(get_db),
+    _: db_models.User = Depends(get_current_user),
+):
+    """
+    Belirli bir bulgu için kural düzenleme geçmişini döndürür.
+    FM  → Revision History API (per-policy, on-demand)
+    PA  → Monitor/Configuration log (per-device, filtered by rule name)
+    Mock cihazlarda boş liste döner.
+    """
+    # En güncel finding kaydını bul
+    finding = (
+        db.query(db_models.FindingRecord)
+        .filter(db_models.FindingRecord.fingerprint == fingerprint)
+        .order_by(db_models.FindingRecord.detected_at.desc())
+        .first()
+    )
+    if not finding:
+        raise HTTPException(status_code=404, detail="Bulgu bulunamadı")
+
+    scan_result = db.query(db_models.ScanResult).filter(
+        db_models.ScanResult.id == finding.scan_result_id
+    ).first()
+    device_host = scan_result.device_host if scan_result else ""
+
+    platform = finding.platform
+
+    if platform == "fortimanager":
+        dev = next(
+            (d for d in FIREWALL_DEVICES
+             if d["type"] == "fortimanager" and d.get("host") == device_host
+             and not d.get("mock", True)),
+            None,
+        )
+        if not dev:
+            return {"entries": [], "source": "fortimanager",
+                    "message": "Bu cihaz için gerçek bağlantı tanımlanmamış veya mock modda."}
+
+        adom_name = finding.customer
+        rule_details = finding.rule_details or {}
+        pkg_name = rule_details.get("_package", "")
+        if not pkg_name:
+            return {"entries": [], "source": "fortimanager",
+                    "message": "Policy paketi bilgisi bulunamadı (eski tarama?). Yeni tarama sonrası tekrar deneyin."}
+
+        client = FortiManagerClient(
+            host=dev["host"], port=dev["port"],
+            username=dev["username"], password=dev["password"],
+        )
+        try:
+            client.login()
+            entries = client.get_policy_revision_history(adom_name, pkg_name, finding.rule_id)
+            return {"entries": entries, "source": "fortimanager"}
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"FortiManager Revision History alınamadı: {exc}")
+        finally:
+            client.logout()
+
+    elif platform == "paloalto":
+        dev = next(
+            (d for d in FIREWALL_DEVICES
+             if d["type"] == "paloalto" and d.get("host") == device_host
+             and not d.get("mock", True)),
+            None,
+        )
+        if not dev:
+            return {"entries": [], "source": "paloalto",
+                    "message": "Bu cihaz için gerçek bağlantı tanımlanmamış veya mock modda."}
+
+        client = PaloAltoClient(
+            host=dev["host"], port=dev["port"],
+            username=dev["username"], password=dev["password"],
+        )
+        try:
+            client.login()
+            entries = client.get_rule_audit_log(finding.rule_name)
+            return {"entries": entries, "source": "paloalto"}
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Palo Alto Config Log alınamadı: {exc}")
+
+    return {"entries": [], "source": platform, "message": "Desteklenmeyen platform"}
+
+
 @app.patch("/api/findings/{fingerprint}/status")
 def update_finding_status(
     fingerprint: str,

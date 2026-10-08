@@ -278,6 +278,8 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
         created_by  = pol.get("created_by", "") or pol.get("_create_by", "") or ""
         modified_by = pol.get("modified_by", "") or pol.get("_modified_by", "") or ""
 
+        pkg_name    = pol.get("_pkg_name", "") or ""
+
         details: Dict[str, Any] = {
             "Kaynak Adres": ", ".join(src),
             "Hedef Adres":  ", ".join(dst),
@@ -286,6 +288,7 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
             "Log":          log,
             "Durum":        status,
             "Açıklama":     comments or "(yok)",
+            "_package":     pkg_name,   # on-demand revision history için — UI'da gizlenir
         }
         if created_by:
             details["Oluşturan"] = created_by
