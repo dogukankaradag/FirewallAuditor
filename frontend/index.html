@@ -948,6 +948,11 @@ async function loadFindings(
   checkName  = document.getElementById('checkFilter')?.value || 'all',
   _changedOnly = changedOnly,
 ) {
+  // Cancel any previous in-flight request
+  if (_findingsAbort) { _findingsAbort.abort(); }
+  _findingsAbort = new AbortController();
+  const signal = _findingsAbort.signal;
+
   let url = '/api/findings?limit=200';
   if (deviceId  && deviceId  !== 'all') url += `&device_id=${encodeURIComponent(deviceId)}`;
   if (severity  && severity  !== 'all') url += `&severity=${severity}`;
@@ -958,13 +963,23 @@ async function loadFindings(
   if (_changedOnly)                     url += `&changed_only=true`;
   if (historicalSessionId)              url += `&session_id=${historicalSessionId}`;
 
-  const res = await api(url);
-  if (!res) return;
-  const data = await res.json();
-  allFindings = Array.isArray(data.findings) ? data.findings : [];
-  renderFindings(allFindings);
-  document.getElementById('findingCount').textContent = `${data.total ?? 0} bulgu`;
-  if (historicalSessionId) _updateStatsFromFindings();
+  try {
+    const headers = {'Content-Type': 'application/json'};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(API + url, {headers, signal});
+    if (signal.aborted) return;           // superseded — discard
+    if (res.status === 401) { doLogout(); return; }
+    if (!res.ok) return;
+    const data = await res.json();
+    if (signal.aborted) return;           // aborted while parsing
+    allFindings = Array.isArray(data.findings) ? data.findings : [];
+    renderFindings(allFindings);
+    document.getElementById('findingCount').textContent = `${data.total ?? 0} bulgu`;
+    if (historicalSessionId) _updateStatsFromFindings();
+  } catch(e) {
+    if (e.name === 'AbortError') return;  // intentionally cancelled
+    console.error('loadFindings error:', e);
+  }
 }
 
 async function populateCheckFilter() {
@@ -1573,11 +1588,15 @@ function onStFilterChange() {
   const tog = document.getElementById('changedToggle');
   if (val === 'resolved') {
     tog.classList.add('show');
+    // Highlight resolved stat card
+    document.querySelectorAll('.stat-card').forEach((c,i) =>
+      c.classList.toggle('active', i === 3));
   } else {
     tog.classList.remove('show');
-    // Çözüldü dışına geçince changedOnly sıfırla
     changedOnly = false;
     tog.classList.remove('active');
+    // Clear resolved card highlight when leaving resolved view
+    document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
   }
   applyFilters();
 }
@@ -1593,17 +1612,29 @@ function selectDevice(id, el) {
   activeDevice = id;
   document.querySelectorAll('.dev-item').forEach(e => e.classList.remove('active'));
   el?.classList.add('active');
+  // Remove stat-card active state so cards don't mislead after device switch
+  document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
   applyFilters();
 }
 
 function filterBySev(sev) {
+  // Always sync both filters then let applyFilters drive the load
+  const stEl  = document.getElementById('stFilter');
+  const sevEl = document.getElementById('sevFilter');
   if (sev === 'resolved') {
-    document.getElementById('stFilter').value = 'resolved';
-    document.getElementById('sevFilter').value = 'all';
-    onStFilterChange();
-    return;
+    stEl.value  = 'resolved';
+    sevEl.value = 'all';
+  } else {
+    // Non-resolved stat cards: reset status filter so we leave resolved view
+    if (stEl.value === 'resolved') {
+      stEl.value = 'all';
+      // Hide "Güncellenmiş" toggle
+      const tog = document.getElementById('changedToggle');
+      if (tog) { tog.classList.remove('show','active'); changedOnly = false; }
+    }
+    sevEl.value = sev;
   }
-  document.getElementById('sevFilter').value = sev;
+  // Sync active state on all 4 stat cards
   document.querySelectorAll('.stat-card').forEach((c,i) =>
     c.classList.toggle('active', ['all','acil','critical','resolved'][i] === sev));
   applyFilters();
