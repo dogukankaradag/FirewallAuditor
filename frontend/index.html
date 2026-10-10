@@ -770,6 +770,7 @@ let historicalSessionId   = null;
 let historicalSessionDate = null;
 let activeTab       = 'bulgular';
 let selectedFindings = new Set();
+let _findingsAbort   = null;
 
 const SEV_ICONS   = {acil:'🚨',critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
 const SEV_LABELS  = {acil:'Acil',critical:'Kritik',high:'Yüksek',medium:'Orta',low:'Düşük'};
