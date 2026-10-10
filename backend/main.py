@@ -370,6 +370,13 @@ class UserEdit(BaseModel):
     password: Optional[str] = None
 
 
+class BulkStatusUpdate(BaseModel):
+    fingerprints: list[str]
+    status: str
+    comment: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+
 class ScanRequest(BaseModel):
     device_ids: Optional[list[str]] = None   # None = tüm cihazlar
 
@@ -740,7 +747,7 @@ def get_summary(
 
     for f in findings:
         st = status_map.get(f.fingerprint)
-        if st and st.status == "resolved":
+        if st and st.status in ("resolved", "false_positive"):
             resolved_count += 1
             if st.is_rule_changed:
                 resolved_changed_count += 1
@@ -969,7 +976,7 @@ def get_findings(
 
     # Durum filtresi — DB düzeyinde
     if fstatus == "resolved":
-        q = q.filter(db_models.FindingStatus.status == "resolved")
+        q = q.filter(db_models.FindingStatus.status.in_(["resolved", "false_positive"]))
     elif fstatus == "open":
         q = q.filter(or_(
             db_models.FindingStatus.id == None,
@@ -981,7 +988,7 @@ def get_findings(
         # Default (all, güncel görünüm): çözüldü bulgular hariç
         q = q.filter(or_(
             db_models.FindingStatus.id == None,
-            db_models.FindingStatus.status != "resolved",
+            ~db_models.FindingStatus.status.in_(["resolved", "false_positive"]),
         ))
     # session_id varsa (geçmiş oturum): tüm bulgular, durum filtresi yok
 
@@ -1147,7 +1154,7 @@ def update_finding_status(
     db: Session = Depends(get_db),
     current: db_models.User = Depends(require_editor_or_admin),
 ):
-    valid = {"open", "acknowledged", "in_progress", "resolved"}
+    valid = {"open", "acknowledged", "in_progress", "resolved", "false_positive"}
     if body.status not in valid:
         raise HTTPException(400, f"Geçersiz durum. Geçerli değerler: {valid}")
 
@@ -1178,11 +1185,11 @@ def update_finding_status(
         st.updated_by  = current.username
         st.updated_at  = datetime.utcnow()
         # Çözüldü olarak işaretlenince snapshot al; is_rule_changed sıfırla
-        if body.status == "resolved" and current_rule_details is not None:
+        if body.status in ("resolved", "false_positive") and current_rule_details is not None:
             st.rule_snapshot   = current_rule_details
             st.is_rule_changed = False
             st.rule_changed_at = None
-        elif body.status != "resolved":
+        elif body.status not in ("resolved", "false_positive"):
             # Tekrar açılırsa snapshot temizle
             st.rule_snapshot   = None
             st.is_rule_changed = False
@@ -1194,12 +1201,79 @@ def update_finding_status(
             comment=body.comment,
             assigned_to=body.assigned_to,
             updated_by=current.username,
-            rule_snapshot=current_rule_details if body.status == "resolved" else None,
+            rule_snapshot=current_rule_details if body.status in ("resolved", "false_positive") else None,
         )
         db.add(st)
 
     db.commit()
     return {"fingerprint": fingerprint, "status": st.status, "updated_by": st.updated_by}
+
+
+@app.post("/api/findings/bulk-status")
+def bulk_update_status(
+    body: BulkStatusUpdate,
+    db: Session = Depends(get_db),
+    current: db_models.User = Depends(require_editor_or_admin),
+):
+    """Birden fazla bulgunun durumunu toplu günceller."""
+    valid = {"open", "acknowledged", "in_progress", "resolved", "false_positive"}
+    if body.status not in valid:
+        raise HTTPException(400, f"Geçersiz durum.")
+    if not body.fingerprints:
+        raise HTTPException(400, "En az bir bulgu seçilmelidir.")
+
+    sess = _latest_session(db)
+    updated = 0
+
+    for fp in body.fingerprints:
+        current_rule_details = None
+        if sess and body.status in ("resolved", "false_positive"):
+            latest_finding = (
+                db.query(db_models.FindingRecord)
+                .join(db_models.ScanResult)
+                .filter(
+                    db_models.ScanResult.session_id == sess.id,
+                    db_models.FindingRecord.fingerprint == fp,
+                )
+                .first()
+            )
+            if latest_finding:
+                current_rule_details = latest_finding.rule_details
+
+        st = db.query(db_models.FindingStatus).filter(
+            db_models.FindingStatus.fingerprint == fp
+        ).first()
+
+        if st:
+            st.status      = body.status
+            if body.comment is not None:
+                st.comment = body.comment
+            if body.assigned_to is not None:
+                st.assigned_to = body.assigned_to
+            st.updated_by  = current.username
+            st.updated_at  = datetime.utcnow()
+            if body.status in ("resolved", "false_positive") and current_rule_details is not None:
+                st.rule_snapshot   = current_rule_details
+                st.is_rule_changed = False
+                st.rule_changed_at = None
+            elif body.status not in ("resolved", "false_positive"):
+                st.rule_snapshot   = None
+                st.is_rule_changed = False
+                st.rule_changed_at = None
+        else:
+            st = db_models.FindingStatus(
+                fingerprint=fp,
+                status=body.status,
+                comment=body.comment,
+                assigned_to=body.assigned_to,
+                updated_by=current.username,
+                rule_snapshot=current_rule_details if body.status in ("resolved", "false_positive") else None,
+            )
+            db.add(st)
+        updated += 1
+
+    db.commit()
+    return {"updated": updated, "status": body.status}
 
 
 # ── Security Profiller endpoint'i ─────────────────────────────────────
@@ -1430,7 +1504,7 @@ def download_excel(
 
     def fill(color): return PatternFill("solid", fgColor=color)
     sev_labels = {"acil": "🟣 ACİL", "critical": "🔴 KRİTİK", "high": "🟠 YÜKSEK", "medium": "🟡 ORTA", "low": "🟢 DÜŞÜK"}
-    status_labels = {"open": "Açık", "acknowledged": "Onaylandı", "in_progress": "İşlemde", "resolved": "Çözüldü"}
+    status_labels = {"open": "Açık", "acknowledged": "Onaylandı", "in_progress": "İşlemde", "resolved": "Çözüldü", "false_positive": "Yanlış Pozitif"}
 
     ws = wb.active
     ws.title = "Özet"

@@ -71,6 +71,10 @@ header{
 .role-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.4px}
 .role-badge.admin{background:rgba(79,142,247,.2);color:var(--accent)}
 .role-badge.editor{background:rgba(34,197,94,.18);color:#16a34a}
+.st-pill.false_positive{background:rgba(220,38,38,.18);color:#dc2626}
+.st-btn.false_positive{background:rgba(220,38,38,.12);color:#dc2626;border:1px solid rgba(220,38,38,.3)}
+.st-btn.false_positive.active{background:rgba(220,38,38,.35);color:#f87171}
+.bulk-chk{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
 .role-badge.readonly{background:rgba(136,146,164,.15);color:var(--muted)}
 .last-scan{font-size:11px;color:var(--muted);white-space:nowrap}
 .btn{padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
@@ -493,12 +497,13 @@ td{padding:9px 11px;vertical-align:middle}
           <table>
             <thead>
               <tr>
+                <th style="width:32px" id="bulkCheckTh"></th>
                 <th>Önem</th><th>Durum</th><th>Platform</th>
                 <th>Müşteri / Cihaz</th><th>Kural</th><th>Zafiyet</th>
               </tr>
             </thead>
             <tbody id="findingsBody">
-              <tr><td colspan="6" class="empty-state"><div class="empty-icon">⏳</div><div>Yükleniyor...</div></td></tr>
+              <tr><td colspan="7" class="empty-state"><div class="empty-icon">⏳</div><div>Yükleniyor...</div></td></tr>
             </tbody>
           </table>
         </div>
@@ -764,11 +769,12 @@ let changedOnly     = false;   // Güncellenmiş filtre
 let historicalSessionId   = null;
 let historicalSessionDate = null;
 let activeTab       = 'bulgular';
+let selectedFindings = new Set();
 
 const SEV_ICONS   = {acil:'🚨',critical:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
 const SEV_LABELS  = {acil:'Acil',critical:'Kritik',high:'Yüksek',medium:'Orta',low:'Düşük'};
-const STAT_LABELS = {open:'Açık',acknowledged:'Onaylandı',in_progress:'İşlemde',resolved:'Çözüldü'};
-const STAT_ICONS  = {open:'⚪',acknowledged:'🔵',in_progress:'🟡',resolved:'✅'};
+const STAT_LABELS = {open:'Açık',acknowledged:'Onaylandı',in_progress:'İşlemde',resolved:'Çözüldü',false_positive:'Yanlış Pozitif'};
+const STAT_ICONS  = {open:'⚪',acknowledged:'🔵',in_progress:'🟡',resolved:'✅',false_positive:'🚫'};
 
 /* ── Fetch wrapper ─────────────────────────────────────────────── */
 async function api(path, opts = {}) {
@@ -1190,14 +1196,22 @@ function devItem(d, child=false) {
 function renderFindings(findings) {
   const tbody = document.getElementById('findingsBody');
   if (!findings.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><div class="empty-icon">✅</div><div>Bu filtre için bulgu yok</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state"><div class="empty-icon">✅</div><div>Bu filtre için bulgu yok</div></td></tr>`;
     return;
   }
   function _findingRow(f, i) {
     const changedBadge = f.is_rule_changed
       ? `<span class="changed-badge">🔄 Kural Değişti</span>` : '';
     const statusCell = `<span class="st-pill ${f.status}">${STAT_ICONS[f.status]||''} ${STAT_LABELS[f.status]||f.status}</span>${changedBadge}`;
-    return `<tr class="finding-row" onclick="openModal(${i})">
+    const chkCell = (isAdmin||isEditor)
+      ? `<td onclick="event.stopPropagation()" style="text-align:center;vertical-align:middle;width:32px">
+           <input type="checkbox" class="bulk-chk" data-fp="${f.fingerprint}"
+             ${selectedFindings.has(f.fingerprint)?'checked':''}
+             onchange="toggleFindingSelect('${f.fingerprint}',this.checked)"/>
+         </td>`
+      : `<td></td>`;
+    return `<tr class="finding-row" onclick="openModal(${i})" data-fp="${f.fingerprint}">
+      ${chkCell}
       <td><span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span></td>
       <td>${statusCell}</td>
       <td><span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FM':'PA'}</span></td>
@@ -1214,27 +1228,39 @@ function renderFindings(findings) {
     </tr>`;
   }
 
-  // Çözüldü görünümünde: önce "Güncelleme Aldı" grubu, sonra normal çözüldü
+  // Çözüldü görünümünde: Güncelleme Aldı / Çözüldü / Yanlış Pozitif
   const stVal = document.getElementById('stFilter')?.value;
+  // Bulk checkbox in header
+  const bth = document.getElementById('bulkCheckTh');
+  if (bth && (isAdmin||isEditor)) {
+    bth.innerHTML = `<input type="checkbox" id="bulkAllChk" title="Tümünü seç"
+      onchange="selectAllFindings(this.checked)" style="cursor:pointer"/>`;
+  }
   if (stVal === 'resolved') {
     const changed  = findings.filter(f => f.is_rule_changed);
-    const normal   = findings.filter(f => !f.is_rule_changed);
+    const fp       = findings.filter(f => !f.is_rule_changed && f.status === 'false_positive');
+    const normal   = findings.filter(f => !f.is_rule_changed && f.status !== 'false_positive');
     let html = '';
     if (changed.length) {
-      html += `<tr><td colspan="6" style="padding:6px 10px 4px;background:rgba(230,126,34,.07);border-bottom:1px solid var(--border)">
+      html += `<tr><td colspan="7" style="padding:6px 10px 4px;background:rgba(230,126,34,.07);border-bottom:1px solid var(--border)">
         <span style="font-size:12px;font-weight:700;color:var(--high)">🔄 Çözüldü — Güncelleme Aldı</span>
         <span style="font-size:11px;color:var(--muted);margin-left:6px">${changed.length} kural çözüldükten sonra değişti</span>
       </td></tr>`;
       html += changed.map((f) => _findingRow(f, findings.indexOf(f))).join('');
     }
     if (normal.length) {
-      if (changed.length) {
-        html += `<tr><td colspan="6" style="padding:6px 10px 4px;background:rgba(39,174,96,.05);border-bottom:1px solid var(--border)">
-          <span style="font-size:12px;font-weight:700;color:var(--low)">✅ Çözüldü</span>
-          <span style="font-size:11px;color:var(--muted);margin-left:6px">${normal.length} kural</span>
-        </td></tr>`;
-      }
+      html += `<tr><td colspan="7" style="padding:6px 10px 4px;background:rgba(39,174,96,.05);border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;font-weight:700;color:var(--low)">✅ Çözüldü</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:6px">${normal.length} kural</span>
+      </td></tr>`;
       html += normal.map((f) => _findingRow(f, findings.indexOf(f))).join('');
+    }
+    if (fp.length) {
+      html += `<tr><td colspan="7" style="padding:6px 10px 4px;background:rgba(220,38,38,.07);border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;font-weight:700;color:#dc2626">🚫 Yanlış Pozitif</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:6px">${fp.length} kural</span>
+      </td></tr>`;
+      html += fp.map((f) => _findingRow(f, findings.indexOf(f))).join('');
     }
     tbody.innerHTML = html;
   } else {
@@ -1271,7 +1297,7 @@ function openModal(idx) {
     <div class="status-editor">
       <div class="dlabel">Durum Güncelle (Admin)</div>
       <div class="status-row">
-        ${['open','acknowledged','in_progress','resolved'].map(s=>`
+        ${['open','acknowledged','in_progress','resolved','false_positive'].map(s=>`
           <button class="st-btn ${s} ${currentStatus===s?'active':''}" onclick="setStatus('${s}')"
             >${STAT_ICONS[s]} ${STAT_LABELS[s]}</button>`).join('')}
       </div>
@@ -1348,6 +1374,91 @@ async function saveStatus() {
   if (!res || !res.ok) { alert('Güncelleme başarısız.'); return; }
   closeModal();
   applyFilters();
+}
+
+
+/* ── Bulk selection ──────────────────────────────────────── */
+function toggleFindingSelect(fp, checked) {
+  if (checked) selectedFindings.add(fp);
+  else selectedFindings.delete(fp);
+  _updateBulkToolbar();
+}
+
+function selectAllFindings(checked) {
+  document.querySelectorAll('.bulk-chk').forEach(cb => {
+    cb.checked = checked;
+    if (checked) selectedFindings.add(cb.dataset.fp);
+    else selectedFindings.delete(cb.dataset.fp);
+  });
+  _updateBulkToolbar();
+}
+
+function _updateBulkToolbar() {
+  const n = selectedFindings.size;
+  const bar = document.getElementById('bulkToolbar');
+  if (!bar) return;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+  const lbl = document.getElementById('bulkCount');
+  if (lbl) lbl.textContent = n + ' bulgu seçildi';
+  const allChk = document.getElementById('bulkAllChk');
+  if (allChk) {
+    const total = document.querySelectorAll('.bulk-chk').length;
+    allChk.checked = n > 0 && n === total;
+    allChk.indeterminate = n > 0 && n < total;
+  }
+}
+
+function clearBulkSelection() {
+  selectedFindings.clear();
+  document.querySelectorAll('.bulk-chk').forEach(cb => cb.checked = false);
+  const allChk = document.getElementById('bulkAllChk');
+  if (allChk) { allChk.checked = false; allChk.indeterminate = false; }
+  _updateBulkToolbar();
+}
+
+function openBulkAction() {
+  const mc = document.getElementById('bulkModalCount');
+  if (mc) mc.textContent = selectedFindings.size + ' bulgu seçildi';
+  document.getElementById('bkStatus').value = 'resolved';
+  document.getElementById('bkComment').value = '';
+  document.getElementById('bkAssigned').value = '';
+  document.getElementById('bulkActionModal').style.display = 'flex';
+}
+
+function closeBulkAction() {
+  document.getElementById('bulkActionModal').style.display = 'none';
+}
+
+async function submitBulkAction() {
+  const status     = document.getElementById('bkStatus').value;
+  const comment    = document.getElementById('bkComment').value;
+  const assignedTo = document.getElementById('bkAssigned').value;
+  if (!status) { alert('Durum seçin.'); return; }
+  const fps = [...selectedFindings];
+  if (!fps.length) return;
+  const res = await api('/api/findings/bulk-status', {
+    method: 'POST',
+    body: JSON.stringify({fingerprints: fps, status, comment, assigned_to: assignedTo}),
+  });
+  if (!res) { alert('Toplu güncelleme başarısız.'); return; }
+  const data = await res.json();
+  closeBulkAction();
+  clearBulkSelection();
+  applyFilters();
+  _showToast((data.updated||0) + ' bulgu güncellendi.' + (data.failed>0 ? ' ' + data.failed + ' başarısız.':''));
+}
+
+function _showToast(msg) {
+  let t = document.getElementById('toastMsg');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toastMsg';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--surface2);color:var(--text);padding:10px 20px;border-radius:8px;border:1px solid var(--border);z-index:9999;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.4);transition:opacity .4s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; }, 3000);
 }
 
 async function fetchRuleHistory(fingerprint) {
@@ -2113,5 +2224,49 @@ if (token && currentUser) {
   setTimeout(() => document.getElementById('inputUser').focus(), 100);
 }
 </script>
+
+<!-- Floating bulk toolbar -->
+<div id="bulkToolbar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 18px;
+  gap:12px;align-items:center;z-index:800;box-shadow:0 4px 24px rgba(0,0,0,.5)">
+  <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text)">0 bulgu seçildi</span>
+  <button class="btn btn-primary" style="padding:6px 16px;font-size:13px" onclick="openBulkAction()">⚡ İşlem Yap</button>
+  <button class="btn btn-ghost" style="padding:6px 12px;font-size:13px" onclick="clearBulkSelection()">✕ Temizle</button>
+</div>
+
+<!-- Bulk action modal -->
+<div id="bulkActionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:900;
+  align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;
+    width:400px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.6)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0;font-size:15px;color:var(--text)">⚡ Toplu İşlem</h3>
+      <button onclick="closeBulkAction()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+    </div>
+    <div id="bulkModalCount" style="font-size:12px;color:var(--muted);margin-bottom:14px"></div>
+    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Durum</label>
+    <select id="bkStatus" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);font-size:13px;margin-bottom:12px">
+      <option value="open">⚪ Açık</option>
+      <option value="acknowledged">🔵 Onaylandı</option>
+      <option value="in_progress">🟡 İşlemde</option>
+      <option value="resolved" selected>✅ Çözüldü</option>
+      <option value="false_positive">🚫 Yanlış Pozitif</option>
+    </select>
+    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Yorum (opsiyonel)</label>
+    <input id="bkComment" type="text" placeholder="Yorum..."
+      style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:12px"/>
+    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Sorumlu kişi (opsiyonel)</label>
+    <input id="bkAssigned" type="text" placeholder="Sorumlu kişi..."
+      style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:18px"/>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeBulkAction()">İptal</button>
+      <button class="btn btn-primary" onclick="submitBulkAction()">💾 Uygula</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
