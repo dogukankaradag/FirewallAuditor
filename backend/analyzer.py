@@ -393,7 +393,11 @@ def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
                 break
 
     return ScanResult(
-        device_id=f"fm_{device_name}",
+        device_id=(
+            f"{adom.get('_parent_device_id')}__{device_name}"
+            if adom.get("_parent_device_id")
+            else f"fm_{device_name}"
+        ),
         device_name=device_name,
         device_label=adom.get("_device_label", ""),
         device_host=adom.get("_device_host", ""),
@@ -613,7 +617,11 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
                 ))
 
     return ScanResult(
-        device_id=f"pa_{device_name}",
+        device_id=(
+            f"{vsys.get('_parent_device_id')}__{device_name}"
+            if vsys.get("_parent_device_id")
+            else f"pa_{device_name}"
+        ),
         device_name=device_name,
         device_label=vsys.get("_device_label", ""),
         device_host=vsys.get("_device_host", ""),
@@ -631,19 +639,22 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
 
 class FirewallAnalyzer:
     def scan_all(self, fm_data: Dict, pa_data: Dict,
-                 device_label: str = "", device_host: str = "") -> List[ScanResult]:
+                 device_label: str = "", device_host: str = "",
+                 parent_device_id: str = "") -> List[ScanResult]:
         """
         fm_data / pa_data: mock ya da gerçek API'dan gelen veri.
-        device_label / device_host: hangi fiziksel cihazdan geldiği bilgisi.
+        device_label / device_host / parent_device_id: hangi fiziksel cihazdan geldiği bilgisi.
         """
         results = []
         for adom in fm_data.get("adoms", []):
-            adom["_device_label"] = device_label
-            adom["_device_host"]  = device_host
+            adom["_device_label"]     = device_label
+            adom["_device_host"]      = device_host
+            adom["_parent_device_id"] = parent_device_id
             results.append(analyze_fortimanager_adom(adom))
         for vsys in pa_data.get("vsys_list", []):
-            vsys["_device_label"] = device_label
-            vsys["_device_host"]  = device_host
+            vsys["_device_label"]     = device_label
+            vsys["_device_host"]      = device_host
+            vsys["_parent_device_id"] = parent_device_id
             results.append(analyze_paloalto_vsys(vsys))
         return results
 
@@ -656,8 +667,9 @@ class FirewallAnalyzer:
         host  = device.get("host", "")
         dtype = device.get("type", "")
 
+        pid = device.get("id", "")
         if dtype == "fortimanager" and fm_data:
-            return self.scan_all(fm_data, {}, device_label=label, device_host=host)
+            return self.scan_all(fm_data, {}, device_label=label, device_host=host, parent_device_id=pid)
         elif dtype == "paloalto" and pa_data:
-            return self.scan_all({}, pa_data, device_label=label, device_host=host)
+            return self.scan_all({}, pa_data, device_label=label, device_host=host, parent_device_id=pid)
         return []
