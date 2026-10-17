@@ -111,7 +111,7 @@ def send_acil_report(db, session_id: int, force: bool = False) -> dict:
         .filter(
             ScanResult.session_id == session_id,
             FindingRecord.severity == "acil",
-            or_(FindingStatus.id == None, FindingStatus.status != "resolved"),
+            or_(FindingStatus.id == None, ~FindingStatus.status.in_(["resolved", "false_positive"])),
         )
         .order_by(FindingRecord.customer, FindingRecord.device_name, FindingRecord.rule_name)
         .all()
@@ -155,7 +155,7 @@ def _build_html(rows, acil_count: int, scan_time: str, subject: str) -> str:
     rows_html = ""
     for i, (f, st, sr) in enumerate(rows):
         bg = "#fff9f9" if i % 2 == 0 else "#fff3f3"
-        status_map = {"open": "Açık", "acknowledged": "Farkında", "in_progress": "İşlemde"}
+        status_map = {"open": "Açık", "acknowledged": "Onaylandı", "in_progress": "İşlemde", "resolved": "Çözüldü", "false_positive": "Yanlış Pozitif"}
         status_label = status_map.get(st.status, st.status) if st else "Açık"
         details_html = ""
         if f.rule_details:
