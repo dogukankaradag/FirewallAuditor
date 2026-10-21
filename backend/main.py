@@ -1675,11 +1675,11 @@ def trigger_health_scan(
     db: Session = Depends(get_db),
 ):
     """Seçili (veya tüm) connector'lar için cihaz sağlık taraması başlatır."""
-    from .connectors import list_devices
+    from .connectors import FIREWALL_DEVICES
     from .pa_client import PaloAltoClient
     from .fm_client import FortiManagerClient
 
-    connectors = list_devices()
+    connectors = FIREWALL_DEVICES
     if connector_ids:
         connectors = [c for c in connectors if c.get("id") in connector_ids]
 
