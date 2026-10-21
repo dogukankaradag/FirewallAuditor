@@ -1671,7 +1671,7 @@ def download_excel(
 @app.post("/api/device-health/scan")
 def trigger_health_scan(
     connector_ids: list[str] | None = None,
-    current_user = Depends(require_editor),
+    current_user: db_models.User = Depends(require_editor_or_admin),
     db: Session = Depends(get_db),
 ):
     """Seçili (veya tüm) connector'lar için cihaz sağlık taraması başlatır."""
