@@ -2289,10 +2289,7 @@ async function triggerHealthScan() {
   btn.textContent = '⏳ Taranıyor...';
   status.textContent = '';
   try {
-    const res = await api('/api/device-health/scan', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
+    const res = await api('/api/device-health/scan', {method: 'POST'});
     if (!res) throw new Error('Sunucu yanıt vermedi');
     const data = await res.json();
     const ok   = data.results.filter(r => r.status === 'completed').length;
