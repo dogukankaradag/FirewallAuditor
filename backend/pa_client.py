@@ -316,3 +316,76 @@ class PaloAltoClient:
                 break
         return entries
 
+
+    # ── Healthcheck ───────────────────────────────────────────────────────
+
+    def get_system_info(self) -> dict:
+        """
+        <show><system><info/></system></show> komutuyla sistem bilgisi çeker.
+        """
+        root = self._api_get({
+            "type": "op",
+            "cmd": "<show><system><info/></system></show>",
+        }, timeout=30)
+        sys_el = root.find(".//system")
+        if sys_el is None:
+            return {}
+        def t(tag: str) -> str:
+            return (sys_el.findtext(tag) or "").strip()
+        return {
+            "hostname":         t("hostname"),
+            "model":            t("model"),
+            "serial":           t("serial"),
+            "sw_version":       t("sw-version"),
+            "uptime":           t("uptime"),
+            "ha_mode":          t("high-availability/mode") or t("operational-mode"),
+            "ha_state":         t("high-availability/state"),
+            "threat_version":   t("threat-version"),
+            "av_version":       t("av-version"),
+            "wildfire_version": t("wildfire-version"),
+        }
+
+    def get_licenses(self) -> list:
+        try:
+            root = self._api_get({
+                "type": "op",
+                "cmd": "<show><license><info/></license></show>",
+            }, timeout=30)
+        except Exception:
+            return []
+        licenses = []
+        for entry in root.findall(".//entry"):
+            feature = (entry.findtext("feature") or "").strip()
+            expires = (entry.findtext("expires") or "").strip()
+            expired = (entry.findtext("expired") or "").strip().lower()
+            if feature:
+                licenses.append({
+                    "feature":  feature,
+                    "description": (entry.findtext("description") or "").strip(),
+                    "expires":  expires,
+                    "expired":  expired in ("yes", "true", "1"),
+                })
+        return licenses
+
+    def get_ha_status(self) -> dict:
+        try:
+            root = self._api_get({
+                "type": "op",
+                "cmd": "<show><high-availability><state/></high-availability></show>",
+            }, timeout=30)
+        except Exception:
+            return {}
+        return {
+            "enabled":     (root.findtext(".//enabled") or "").lower() in ("yes", "true", "1"),
+            "local_state": root.findtext(".//group//local-info//state") or "",
+            "peer_state":  root.findtext(".//group//peer-info//state") or "",
+        }
+
+    def healthcheck(self) -> dict:
+        self.login()
+        return {
+            "platform": "paloalto",
+            "info":     self.get_system_info(),
+            "licenses": self.get_licenses(),
+            "ha":       self.get_ha_status(),
+        }

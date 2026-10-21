@@ -139,3 +139,21 @@ class SystemSetting(Base):
     id    = Column(Integer, primary_key=True, index=True)
     key   = Column(String(100), unique=True, nullable=False, index=True)
     value = Column(Text, nullable=True)
+
+
+class DeviceHealthRecord(Base):
+    """
+    Cihaz sağlık durumu tarama sonuçları.
+    """
+    __tablename__ = "device_health"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    scanned_at   = Column(DateTime, default=datetime.utcnow)
+    triggered_by = Column(String(100), default="manual")   # username | "scheduler"
+    connector_id = Column(String(100))
+    device_label = Column(String(200), default="")
+    device_host  = Column(String(100), default="")
+    platform     = Column(String(50))    # fortimanager | paloalto
+    raw_data     = Column(JSON, default=dict)   # API'dan gelen ham veri
+    status       = Column(String(20), default="completed")  # completed | failed
+    error_msg    = Column(Text, nullable=True)

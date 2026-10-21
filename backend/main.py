@@ -41,9 +41,12 @@ from .mock_data import FORTIMANAGER_MOCK, PALOALTO_MOCK
 from .connectors import FIREWALL_DEVICES
 from .fm_client import FortiManagerClient
 from .pa_client import PaloAltoClient
+from .fg_client import FortiGateClient
 from .scheduler import (
     apply_schedule,
+    apply_health_schedule,
     get_scheduler_status,
+    get_health_scheduler_status,
     set_scheduler_enabled,
     setup_scheduler,
     shutdown_scheduler,
@@ -82,10 +85,12 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
         devices_to_scan = FIREWALL_DEVICES if not device_ids else [d for d in FIREWALL_DEVICES if d["id"] in device_ids]
         fm_devices = [d for d in devices_to_scan if d["type"] == "fortimanager"]
         pa_devices  = [d for d in devices_to_scan if d["type"] == "paloalto"]
+        fg_devices  = [d for d in devices_to_scan if d["type"] == "fortigate"]
 
         # Ham cihaz verileri — security profilleri kaydetmek için saklıyoruz
         raw_fm_data: list[tuple[dict, dict]] = []   # (dev, fm_data)
         raw_pa_data: list[tuple[dict, dict]] = []   # (dev, pa_data)
+        raw_fg_data: list[tuple[dict, dict]] = []   # (dev, fg_data)
 
         for dev in fm_devices:
             label = dev.get("label", dev["id"])
@@ -120,6 +125,22 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
                 all_results.extend(res)
             except Exception as e:
                 log.error(f"Palo Alto cihazı '{label}' taranamadı: {e}", exc_info=True)
+
+        for dev in fg_devices:
+            label = dev.get("label", dev["id"])
+            try:
+                client = FortiGateClient(
+                    host=dev["host"], port=dev.get("port", 443),
+                    username=dev.get("username", ""),
+                    password=dev.get("password", ""),
+                    api_key=dev.get("api_key", ""),
+                )
+                fg_data = client.fetch_all()
+                raw_fg_data.append((dev, fg_data))
+                res = analyzer.scan_device(dev, fg_data=fg_data)
+                all_results.extend(res)
+            except Exception as e:
+                log.error(f"FortiGate cihazı '{label}' taranamadı: {e}", exc_info=True)
 
         results = all_results
         total_rules = total_findings = 0
@@ -325,7 +346,42 @@ async def lifespan(app: FastAPI):
             t.start()
     finally:
         db.close()
-    setup_scheduler(_scheduled_scan)
+    def _scheduled_health():
+        from .pa_client import PaloAltoClient
+        from .fm_client import FortiManagerClient
+        from .connectors import load_connectors
+        _hdb = SessionLocal()
+        try:
+            connectors = load_connectors()
+            for conn in connectors:
+                rec = db_models.DeviceHealthRecord(
+                    triggered_by="scheduler",
+                    connector_id=conn.get("id",""),
+                    device_label=conn.get("label",conn.get("name","")),
+                    device_host=conn.get("host",""),
+                    platform=conn.get("type",""),
+                    status="running",
+                )
+                _hdb.add(rec); _hdb.flush()
+                try:
+                    if conn.get("type") == "paloalto":
+                        c = PaloAltoClient(host=conn["host"],port=int(conn.get("port",443)),username=conn["username"],password=conn["password"])
+                        rec.raw_data = c.healthcheck()
+                    elif conn.get("type") == "fortimanager":
+                        c = FortiManagerClient(host=conn["host"],port=int(conn.get("port",443)),username=conn["username"],password=conn["password"])
+                        rec.raw_data = c.healthcheck()
+                    elif conn.get("type") == "fortigate":
+                        from .fg_client import FortiGateClient
+                        c = FortiGateClient(host=conn["host"],port=int(conn.get("port",443)),username=conn.get("username",""),password=conn.get("password",""),api_key=conn.get("api_key",""))
+                        rec.raw_data = c.healthcheck()
+                    rec.status = "completed"
+                except Exception as _he:
+                    rec.status = "failed"; rec.error_msg = str(_he)
+                _hdb.commit()
+        finally:
+            _hdb.close()
+
+    setup_scheduler(_scheduled_scan, health_func=_scheduled_health)
     # DB'den zamanlayıcı ayarlarını oku ve uygula
     _sched_db = SessionLocal()
     try:
@@ -333,6 +389,10 @@ async def lifespan(app: FastAPI):
         _minute  = int(get_setting(_sched_db, "scheduler_minute",  "0"))
         _enabled = get_setting(_sched_db, "scheduler_enabled", "1") == "1"
         apply_schedule(_hour, _minute, _enabled)
+        _hh    = int(get_setting(_sched_db, "health_scheduler_hour",    "3"))
+        _hm    = int(get_setting(_sched_db, "health_scheduler_minute",  "0"))
+        _he    = get_setting(_sched_db, "health_scheduler_enabled", "0") == "1"
+        apply_health_schedule(_hh, _hm, _he)
     except Exception as _e:
         log.warning("Zamanlayıcı ayarı okunamadı: %s", _e)
         apply_schedule(2, 0, True)
@@ -740,7 +800,7 @@ def get_summary(
     status_map = _status_map(db, fps)
 
     sev_counts  = {"acil": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
-    plat_counts = {"fortimanager": 0, "paloalto": 0}
+    plat_counts = {"fortimanager": 0, "paloalto": 0, "fortigate": 0}
     device_map: dict = {}
     resolved_count = 0
     resolved_changed_count = 0
@@ -1406,6 +1466,7 @@ def save_settings(
     ALLOWED = {
         "scheduler_enabled", "scheduler_hour", "scheduler_minute",
         "scheduler_devices",   # virgülle ayrılmış device ID'leri (boş = hepsi)
+        "health_scheduler_enabled", "health_scheduler_hour", "health_scheduler_minute",
         "mail_enabled", "mail_to", "mail_cc", "mail_subject",
         # SMTP sunucu ayarları (host/port/from/tls) .env dosyasından okunur
     }
@@ -1426,7 +1487,16 @@ def save_settings(
     except Exception as e:
         log.warning("Zamanlayıcı güncellenemedi: %s", e)
 
-    return {"ok": True, "scheduler": get_scheduler_status()}
+    # Sağlık tarama zamanlayıcısını güncelle
+    try:
+        hh = int(get_setting(db, "health_scheduler_hour",    "3"))
+        hm = int(get_setting(db, "health_scheduler_minute",  "0"))
+        he = get_setting(db, "health_scheduler_enabled", "0") == "1"
+        apply_health_schedule(hh, hm, he)
+    except Exception as _he:
+        log.warning("Sağlık zamanlayıcı güncellenemedi: %s", _he)
+
+    return {"ok": True, "scheduler": get_scheduler_status(), "health_scheduler": get_health_scheduler_status()}
 
 
 @app.post("/api/settings/test-mail")
@@ -1594,6 +1664,258 @@ def download_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={fname}"})
 
+
+
+# ── Cihaz Durumu (Healthcheck) ─────────────────────────────────────────────
+
+@app.post("/api/device-health/scan")
+def trigger_health_scan(
+    connector_ids: list[str] | None = None,
+    current_user = Depends(require_editor),
+    db: Session = Depends(get_db),
+):
+    """Seçili (veya tüm) connector'lar için cihaz sağlık taraması başlatır."""
+    from .connectors import load_connectors
+    from .pa_client import PaloAltoClient
+    from .fm_client import FortiManagerClient
+
+    connectors = load_connectors()
+    if connector_ids:
+        connectors = [c for c in connectors if c.get("id") in connector_ids]
+
+    results = []
+    for conn in connectors:
+        record = db_models.DeviceHealthRecord(
+            triggered_by = current_user.username,
+            connector_id = conn.get("id", ""),
+            device_label = conn.get("label", conn.get("name", "")),
+            device_host  = conn.get("host", ""),
+            platform     = conn.get("type", ""),
+            status       = "running",
+        )
+        db.add(record)
+        db.flush()
+        try:
+            if conn.get("type") == "paloalto":
+                client = PaloAltoClient(
+                    host=conn["host"], port=int(conn.get("port", 443)),
+                    username=conn["username"], password=conn["password"],
+                )
+                data = client.healthcheck()
+            elif conn.get("type") == "fortimanager":
+                client = FortiManagerClient(
+                    host=conn["host"], port=int(conn.get("port", 443)),
+                    username=conn["username"], password=conn["password"],
+                )
+                data = client.healthcheck()
+            else:
+                data = {}
+            record.raw_data = data
+            record.status   = "completed"
+        except Exception as exc:
+            record.status    = "failed"
+            record.error_msg = str(exc)
+            data = {}
+        db.commit()
+        results.append({
+            "id":          record.id,
+            "connector_id": record.connector_id,
+            "device_label": record.device_label,
+            "platform":     record.platform,
+            "status":       record.status,
+            "error":        record.error_msg,
+            "data":         data,
+        })
+    return {"results": results}
+
+
+@app.get("/api/device-health")
+def get_health_history(
+    limit: int = Query(20, ge=1, le=100),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Son healthcheck taramalarını döner."""
+    records = (
+        db.query(db_models.DeviceHealthRecord)
+        .order_by(db_models.DeviceHealthRecord.scanned_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"records": [
+        {
+            "id":           r.id,
+            "scanned_at":   r.scanned_at.isoformat() if r.scanned_at else None,
+            "triggered_by": r.triggered_by,
+            "connector_id": r.connector_id,
+            "device_label": r.device_label,
+            "device_host":  r.device_host,
+            "platform":     r.platform,
+            "status":       r.status,
+            "error":        r.error_msg,
+            "data":         r.raw_data or {},
+        }
+        for r in records
+    ]}
+
+
+@app.get("/api/device-health/{record_id}")
+def get_health_record(
+    record_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Tek bir healthcheck kaydını döner."""
+    r = db.get(db_models.DeviceHealthRecord, record_id)
+    if not r:
+        raise HTTPException(404, "Kayıt bulunamadı")
+    return {
+        "id":           r.id,
+        "scanned_at":   r.scanned_at.isoformat() if r.scanned_at else None,
+        "triggered_by": r.triggered_by,
+        "connector_id": r.connector_id,
+        "device_label": r.device_label,
+        "device_host":  r.device_host,
+        "platform":     r.platform,
+        "status":       r.status,
+        "error":        r.error_msg,
+        "data":         r.raw_data or {},
+    }
+
+
+@app.get("/api/device-health/report/pdf")
+def health_report_pdf(
+    record_ids: str = Query(..., description="Virgülle ayrılmış record ID'leri"),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Seçili healthcheck kayıtları için PDF rapor üretir."""
+    try:
+        ids = [int(x.strip()) for x in record_ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(400, "Geçersiz record ID formatı")
+
+    records = db.query(db_models.DeviceHealthRecord).filter(
+        db_models.DeviceHealthRecord.id.in_(ids)
+    ).order_by(db_models.DeviceHealthRecord.scanned_at.desc()).all()
+
+    if not records:
+        raise HTTPException(404, "Kayıt bulunamadı")
+
+    html = _build_health_pdf_html(records)
+    try:
+        import weasyprint
+        pdf_bytes = weasyprint.HTML(string=html).write_pdf()
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=device-health-report.pdf"},
+        )
+    except ImportError:
+        return StreamingResponse(
+            io.BytesIO(html.encode()),
+            media_type="text/html",
+            headers={"Content-Disposition": "inline; filename=device-health-report.html"},
+        )
+
+
+def _build_health_pdf_html(records) -> str:
+    """Healthcheck PDF/HTML raporu oluşturur."""
+    from datetime import datetime as dt
+    now_str = dt.now().strftime("%d.%m.%Y %H:%M")
+
+    rows_html = ""
+    for r in records:
+        data = r.raw_data or {}
+        status_color = "#27ae60" if r.status == "completed" else "#e74c3c"
+        status_label = "Başarılı" if r.status == "completed" else f"Hata: {r.error_msg or ''} "
+
+        if r.platform == "paloalto":
+            info = data.get("info", {})
+            ha   = data.get("ha",   {})
+            licenses = data.get("licenses", [])
+            detail_rows = ""
+            fields = [
+                ("Hostname",         info.get("hostname", "—")),
+                ("Model",            info.get("model", "—")),
+                ("Seri No",          info.get("serial", "—")),
+                ("SW Versiyon",      info.get("sw_version", "—")),
+                ("Uptime",           info.get("uptime", "—")),
+                ("Tehdit DB",        info.get("threat_version", "—")),
+                ("AV Versiyon",      info.get("av_version", "—")),
+                ("Wildfire",         info.get("wildfire_version", "—")),
+                ("HA Durumu",        ("Aktif – " + ha.get("local_state", "")) if ha.get("enabled") else "HA Yok"),
+            ]
+            for k, v in fields:
+                detail_rows += f"<tr><td style='padding:5px 10px;color:#555;'>{k}</td><td style='padding:5px 10px;font-weight:600;'>{v}</td></tr>"
+            lic_rows = ""
+            for lic in licenses[:10]:
+                exp_color = "#e74c3c" if lic.get("expired") else "#27ae60"
+                exp_label = "⚠ Süresi Dolmuş" if lic.get("expired") else lic.get("expires", "—")
+                lic_rows += f"<tr><td style='padding:4px 10px;font-size:12px;'>{lic.get('feature','')} — {lic.get('description','')}</td><td style='padding:4px 10px;font-size:12px;color:{exp_color};'>{exp_label}</td></tr>"
+        else:
+            status_info = data.get("status", {})
+            devices     = data.get("devices", [])
+            detail_rows = ""
+            fields = [
+                ("FM Hostname",      status_info.get("hostname", "—")),
+                ("Versiyon",         status_info.get("version",  "—")),
+                ("Seri No",          status_info.get("serial",   "—")),
+                ("Platform",         status_info.get("platform", "—")),
+                ("Maks ADOM",        status_info.get("max_adoms", "—")),
+                ("Aktif ADOM",       status_info.get("current_adoms", "—")),
+            ]
+            for k, v in fields:
+                detail_rows += f"<tr><td style='padding:5px 10px;color:#555;'>{k}</td><td style='padding:5px 10px;font-weight:600;'>{v}</td></tr>"
+            lic_rows = ""
+            for dev in devices[:20]:
+                conn_color = "#27ae60" if "up" in dev.get("conn_status", "").lower() else "#e74c3c"
+                lic_rows += f"<tr><td style='padding:4px 10px;font-size:12px;'>{dev.get('name','')} ({dev.get('model','')})</td><td style='padding:4px 10px;font-size:12px;'>{dev.get('os_ver','')}</td><td style='padding:4px 10px;font-size:12px;color:{conn_color};'>{dev.get('conn_status','')}</td></tr>"
+
+        plat_label = "Palo Alto" if r.platform == "paloalto" else "FortiManager"
+        scan_time  = r.scanned_at.strftime("%d.%m.%Y %H:%M") if r.scanned_at else "—"
+
+        rows_html += f"""
+        <div style="margin-bottom:32px;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+          <div style="background:#2c3e50;color:white;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:15px;font-weight:700;">{r.device_label or r.connector_id} &nbsp; <small style="font-weight:400;opacity:.8;">{r.device_host}</small></span>
+            <span style="font-size:12px;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:4px;">{plat_label}</span>
+          </div>
+          <div style="padding:12px 18px;background:#f8f9fa;display:flex;gap:20px;font-size:12px;">
+            <span>📅 Tarama: <b>{scan_time}</b></span>
+            <span>👤 Tetikleyen: <b>{r.triggered_by}</b></span>
+            <span style="color:{status_color};">● {status_label}</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            {detail_rows}
+          </table>"""
+
+        if lic_rows:
+            lic_header = "Lisanslar" if r.platform == "paloalto" else "Yönetilen Cihazlar"
+            rows_html += f"""
+          <div style="padding:8px 18px;background:#ecf0f1;font-size:11px;font-weight:700;color:#7f8c8d;letter-spacing:.5px;text-transform:uppercase;">{lic_header}</div>
+          <table style="width:100%;border-collapse:collapse;">
+            {lic_rows}
+          </table>"""
+
+        rows_html += "</div>"
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>Cihaz Durumu Raporu</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;margin:0;padding:20px 30px;color:#2c3e50;background:#fff;}}
+  h1{{color:#2c3e50;font-size:22px;margin-bottom:4px;}}
+  .subtitle{{color:#7f8c8d;font-size:13px;margin-bottom:28px;}}
+  @media print{{body{{padding:10px}}}}
+</style>
+</head><body>
+<div style="border-bottom:3px solid #e74c3c;padding-bottom:14px;margin-bottom:24px;">
+  <h1>🖥 Cihaz Durumu Raporu</h1>
+  <div class="subtitle">Oluşturulma tarihi: {now_str} — FirewallAudit</div>
+</div>
+{rows_html}
+</body></html>"""
 
 # ── Frontend ──────────────────────────────────────────────────────────
 

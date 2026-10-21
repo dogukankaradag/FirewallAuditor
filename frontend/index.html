@@ -117,7 +117,7 @@ aside{
 .sidebar-list{flex:1;overflow-y:auto;padding:6px}
 .plat-label{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}
 .plat-dot{width:7px;height:7px;border-radius:50%}
-.plat-dot.fm{background:var(--fm)}.plat-dot.pa{background:var(--pa)}
+.plat-dot.fm{background:var(--fm)}.plat-dot.pa{background:var(--pa)}.plat-dot.fg{background:var(--fg-color)}
 .dev-item{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:7px;cursor:pointer;transition:background .12s;margin-bottom:2px}
 .dev-item:hover{background:var(--surface2)}
 .dev-item.active{background:rgba(79,142,247,.12);border-left:3px solid var(--accent);padding-left:6px}
@@ -216,6 +216,7 @@ td{padding:9px 11px;vertical-align:middle}
 .plat-tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase}
 .plat-tag.fm{background:rgba(59,130,246,.15);color:var(--fm)}
 .plat-tag.pa{background:rgba(249,115,22,.15);color:var(--pa)}
+.plat-tag.fg{background:rgba(34,197,94,.15);color:var(--fg-color)}
 .st-pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600}
 .st-pill.open{background:rgba(136,146,164,.15);color:var(--muted)}
 .st-pill.acknowledged{background:rgba(79,142,247,.15);color:var(--accent)}
@@ -370,6 +371,7 @@ td{padding:9px 11px;vertical-align:middle}
 .sec-plat-tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;margin-left:6px}
 .sec-plat-tag.fm{background:rgba(59,130,246,.15);color:var(--fm)}
 .sec-plat-tag.pa{background:rgba(249,115,22,.15);color:var(--pa)}
+.sec-plat-tag.fg{background:rgba(34,197,94,.15);color:var(--fg-color)}
 .sec-empty{text-align:center;padding:60px 20px;color:var(--muted)}
 
 ::-webkit-scrollbar{width:5px;height:5px}
@@ -455,6 +457,7 @@ td{padding:9px 11px;vertical-align:middle}
       <div class="main-tabs">
         <div class="main-tab active" id="tabBulgular" onclick="switchTab('bulgular')">📋 Bulgular</div>
         <div class="main-tab" id="tabSec" onclick="switchTab('sec')">🔒 Security Profiller</div>
+        <div class="main-tab" id="tabHealth" onclick="switchTab('health')">🖥 Cihaz Durumu</div>
       </div>
 
       <!-- Bulgular paneli -->
@@ -471,6 +474,9 @@ td{padding:9px 11px;vertical-align:middle}
             <option value="all">Tüm Önem</option>
             <option value="acil">🚨 Acil</option>
             <option value="critical">🔴 Kritik</option>
+            <option value="high">🟠 Yüksek</option>
+            <option value="medium">🟡 Orta</option>
+            <option value="low">🟢 Düşük</option>
           </select>
           <select class="fsel" id="platFilter" onchange="applyFilters()">
             <option value="all">Tüm Platform</option>
@@ -525,6 +531,18 @@ td{padding:9px 11px;vertical-align:middle}
           <div class="sec-empty"><div style="font-size:36px;margin-bottom:10px">🔒</div>Yükleniyor...</div>
         </div>
       </div><!-- /secPanel -->
+      <!-- ── Cihaz Durumu Paneli ────────────────────────── -->
+      <div id="healthPanel" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+        <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="triggerHealthScan()" id="healthScanBtn" style="font-size:13px;">🔍 Cihaz Durumu Tara</button>
+          <span id="healthScanStatus" style="font-size:12px;color:var(--muted);"></span>
+          <div style="flex:1"></div>
+          <button class="btn btn-ghost" onclick="downloadHealthPdf()" id="healthPdfBtn" style="font-size:12px;display:none;">📄 PDF Rapor</button>
+        </div>
+        <div id="healthContent" style="flex:1;overflow-y:auto;padding:16px 18px;">
+          <div style="color:var(--muted);font-size:13px;text-align:center;padding:40px;">Cihaz durumu taraması başlatmak için "Cihaz Durumu Tara" butonuna tıklayın.</div>
+        </div>
+      </div>
 
     </main>
   </div>
@@ -1019,6 +1037,7 @@ async function openDeviceModal() {
   const groups = [
     { key:'fortimanager', label:'FortiManager', icon:'🛡️', items: devices.filter(d => d.type==='fortimanager') },
     { key:'paloalto',     label:'Palo Alto',    icon:'🔥', items: devices.filter(d => d.type==='paloalto') },
+    { key:'fortigate',    label:'FortiGate',    icon:'🟢', items: devices.filter(d => d.type==='fortigate') },
   ].filter(g => g.items.length);
 
   listEl.innerHTML = groups.map(g => `
@@ -1230,7 +1249,7 @@ function renderFindings(findings) {
       ${chkCell}
       <td><span class="sev-pill ${f.severity}">${SEV_ICONS[f.severity]} ${SEV_LABELS[f.severity]}</span></td>
       <td>${statusCell}</td>
-      <td><span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FM':'PA'}</span></td>
+      <td><span class="plat-tag ${f.platform==='fortimanager'?'fm':f.platform==='paloalto'?'pa':'fg'}">${f.platform==='fortimanager'?'FM':f.platform==='paloalto'?'PA':'FG'}</span></td>
       <td>
         <div style="font-weight:500">${esc(f.customer)}</div>
         <div style="font-size:11px;color:var(--muted)">${esc(f.device_label||f.device_name)}</div>
@@ -1336,7 +1355,7 @@ function openModal(idx) {
       <div class="dtext">
         <strong>${esc(f.customer)}</strong>
         <div style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span class="plat-tag ${f.platform==='fortimanager'?'fm':'pa'}">${f.platform==='fortimanager'?'FortiManager':'Palo Alto'}</span>
+          <span class="plat-tag ${f.platform==='fortimanager'?'fm':f.platform==='paloalto'?'pa':'fg'}">${f.platform==='fortimanager'?'FortiManager':f.platform==='paloalto'?'Palo Alto':'FortiGate'}</span>
           <span>${esc(f.device_label||f.device_name)}</span>
           ${f.device_host ? `<code style="font-size:11px;color:var(--accent);background:var(--surface2);padding:2px 6px;border-radius:4px">${esc(f.device_host)}</code>` : ''}
         </div>
@@ -1577,10 +1596,13 @@ function switchTab(tab) {
   activeTab = tab;
   document.getElementById('tabBulgular').classList.toggle('active', tab === 'bulgular');
   document.getElementById('tabSec').classList.toggle('active',      tab === 'sec');
-  document.getElementById('bulguPanel').style.display = tab === 'bulgular' ? 'flex' : 'none';
+  document.getElementById('tabHealth').classList.toggle('active',   tab === 'health');
+  document.getElementById('bulguPanel').style.display    = tab === 'bulgular' ? 'flex' : 'none';
   document.getElementById('secPanel').classList.toggle('show',      tab === 'sec');
+  document.getElementById('healthPanel').style.display   = tab === 'health'   ? 'flex' : 'none';
   document.getElementById('bulguPanel').style.flexDirection = 'column';
-  if (tab === 'sec') loadSecurityProfiles();
+  if (tab === 'sec')    loadSecurityProfiles();
+  if (tab === 'health') loadHealthHistory();
 }
 
 /* ── Güncellenmiş filtre ─────────────────────────────────────────── */
@@ -1725,7 +1747,7 @@ function renderSecurityProfiles(data, scroll, countEl) {
 
 function secCard(customer, d, hasAll) {
   const platTag = d.platform
-    ? `<span class="sec-plat-tag ${d.platform==='fortimanager'?'fm':'pa'}">${d.platform==='fortimanager'?'FM':'PA'}</span>`
+    ? `<span class="sec-plat-tag ${d.platform==='fortimanager'?'fm':d.platform==='paloalto'?'pa':'fg'}">${d.platform==='fortimanager'?'FM':d.platform==='paloalto'?'PA':'FG'}</span>`
     : '';
   const allBadge = hasAll ? `<span class="sec-all-badge">✅ Tümünü Kullanan</span>` : '';
 
@@ -2031,7 +2053,7 @@ async function _loadSchedDevices(selectedIds) {
     const allSelected = selectedIds.length === 0;
     box.innerHTML = devs.map(d => {
       const checked = allSelected || selectedIds.includes(d.id) ? 'checked' : '';
-      const badge = d.type === 'fortimanager' ? '🟦 FM' : '🟧 PA';
+      const badge = d.type === 'fortimanager' ? '🟦 FM' : d.type === 'paloalto' ? '🟧 PA' : '🟢 FG';
       return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 2px">
         <input type="checkbox" value="${esc(d.id)}" ${checked}
           style="accent-color:var(--accent);width:14px;height:14px;flex-shrink:0">
@@ -2255,6 +2277,155 @@ if (token && currentUser) {
   document.getElementById('loginScreen').classList.add('show');
   setTimeout(() => document.getElementById('inputUser').focus(), 100);
 }
+
+/* ── Cihaz Durumu (Healthcheck) ──────────────────────────────────── */
+
+let _lastHealthRecordIds = [];
+
+async function triggerHealthScan() {
+  const btn    = document.getElementById('healthScanBtn');
+  const status = document.getElementById('healthScanStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Taranıyor...';
+  status.textContent = '';
+  try {
+    const res = await fetch('/api/device-health/scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...authHeader()},
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const ok   = data.results.filter(r => r.status === 'completed').length;
+    const fail = data.results.filter(r => r.status === 'failed').length;
+    status.textContent = `✓ ${ok} cihaz başarılı${fail ? ', ' + fail + ' hata' : ''}`;
+    status.style.color = fail ? 'var(--critical)' : 'var(--low)';
+    _lastHealthRecordIds = data.results.map(r => r.id).filter(Boolean);
+    renderHealthResults(data.results);
+    document.getElementById('healthPdfBtn').style.display = 'inline-flex';
+  } catch(e) {
+    status.textContent = '❌ Hata: ' + e.message;
+    status.style.color = 'var(--critical)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Cihaz Durumu Tara';
+  }
+}
+
+async function loadHealthHistory() {
+  try {
+    const res = await fetch('/api/device-health?limit=50', {headers: authHeader()});
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.records || data.records.length === 0) return;
+    _lastHealthRecordIds = data.records.map(r => r.id);
+    renderHealthResults(data.records.map(r => ({...r, data: r.data})));
+    document.getElementById('healthPdfBtn').style.display = 'inline-flex';
+  } catch(e) { /* sessizce yoksay */ }
+}
+
+function renderHealthResults(results) {
+  const el = document.getElementById('healthContent');
+  if (!results || results.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:40px;">Henüz tarama verisi yok.</div>';
+    return;
+  }
+  let html = '';
+  for (const r of results) {
+    const d = r.data || {};
+    const scanTime = r.scanned_at ? new Date(r.scanned_at).toLocaleString('tr-TR') : '—';
+    const statusColor = r.status === 'completed' ? 'var(--low)' : 'var(--critical)';
+    const statusLabel = r.status === 'completed' ? '● Başarılı' : `● Hata: ${r.error||''}`;
+
+    let detailHtml = '';
+    if (r.platform === 'paloalto') {
+      const info = d.info || {};
+      const ha   = d.ha   || {};
+      const lics = d.licenses || [];
+      detailHtml += _healthRow('Hostname',        info.hostname       || '—');
+      detailHtml += _healthRow('Model',            info.model          || '—');
+      detailHtml += _healthRow('Seri No',          info.serial         || '—');
+      detailHtml += _healthRow('SW Versiyon',      info.sw_version     || '—');
+      detailHtml += _healthRow('Uptime',           info.uptime         || '—');
+      detailHtml += _healthRow('Tehdit DB',        info.threat_version || '—');
+      detailHtml += _healthRow('AV Versiyon',      info.av_version     || '—');
+      detailHtml += _healthRow('Wildfire',         info.wildfire_version || '—');
+      detailHtml += _healthRow('HA Durumu',        ha.enabled ? `Aktif — ${ha.local_state||''}` : 'HA Yok');
+      if (lics.length) {
+        detailHtml += `<tr><td colspan="2" style="padding:8px 12px;background:var(--surface2,#f5f5f5);font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;">Lisanslar</td></tr>`;
+        for (const lic of lics.slice(0,10)) {
+          const expColor = lic.expired ? 'var(--critical)' : 'var(--low)';
+          const expLabel = lic.expired ? '⚠ Süresi Dolmuş' : (lic.expires || '—');
+          detailHtml += `<tr><td style="padding:4px 12px;font-size:12px;">${lic.feature} <small style="color:var(--muted)">${lic.description||''}</small></td><td style="padding:4px 12px;font-size:12px;color:${expColor};">${expLabel}</td></tr>`;
+        }
+      }
+    } else if (r.platform === 'fortimanager') {
+      const st  = d.status  || {};
+      const devs = d.devices || [];
+      detailHtml += _healthRow('FM Hostname',  st.hostname     || '—');
+      detailHtml += _healthRow('Versiyon',     st.version      || '—');
+      detailHtml += _healthRow('Seri No',      st.serial       || '—');
+      detailHtml += _healthRow('Platform',     st.platform     || '—');
+      detailHtml += _healthRow('Maks ADOM',    st.max_adoms    || '—');
+      detailHtml += _healthRow('Aktif ADOM',   st.current_adoms|| '—');
+      if (devs.length) {
+        detailHtml += `<tr><td colspan="2" style="padding:8px 12px;background:var(--surface2,#f5f5f5);font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;">Yönetilen Cihazlar (${devs.length})</td></tr>`;
+        for (const dev of devs.slice(0,20)) {
+          const cColor = (dev.conn_status||'').toLowerCase().includes('up') ? 'var(--low)' : 'var(--critical)';
+          detailHtml += `<tr><td style="padding:4px 12px;font-size:12px;">${dev.name||''} <small style="color:var(--muted)">${dev.model||''}</small></td><td style="padding:4px 12px;font-size:12px;color:${cColor};">${dev.conn_status||'—'} <small style="color:var(--muted)">${dev.os_ver||''}</small></td></tr>`;
+        }
+      }
+    } else if (r.platform === 'fortigate') {
+      const info = d.info || {};
+      const lics = d.licenses || [];
+      detailHtml += _healthRow('Hostname',  info.hostname || '—');
+      detailHtml += _healthRow('Model',     info.model    || '—');
+      detailHtml += _healthRow('Seri No',   info.serial   || '—');
+      detailHtml += _healthRow('Versiyon',  info.version  || '—');
+      detailHtml += _healthRow('Uptime',    info.uptime   || '—');
+      detailHtml += _healthRow('HA Modu',   info.ha_mode  || '—');
+      if (lics.length) {
+        detailHtml += `<tr><td colspan="2" style="padding:8px 12px;background:var(--surface2,#f5f5f5);font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;">Lisanslar</td></tr>`;
+        for (const lic of lics.slice(0,10)) {
+          const expColor = lic.expired ? 'var(--critical)' : 'var(--low)';
+          detailHtml += `<tr><td style="padding:4px 12px;font-size:12px;">${lic.feature}</td><td style="padding:4px 12px;font-size:12px;color:${expColor};">${lic.expired ? '⚠ Süresi Dolmuş' : (lic.expires||'—')}</td></tr>`;
+        }
+      }
+    } else if (r.error) {
+      detailHtml += `<tr><td colspan="2" style="padding:12px;color:var(--critical);">❌ ${r.error}</td></tr>`;
+    }
+
+    const platLabel = r.platform === 'paloalto' ? '🔥 Palo Alto' : r.platform === 'fortimanager' ? '🛡 FortiManager' : r.platform === 'fortigate' ? '🟢 FortiGate' : r.platform;
+    html += `
+    <div style="margin-bottom:20px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <div style="background:var(--surface2,#2c3e50);color:var(--fg);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
+        <span style="font-weight:700;font-size:14px;">${r.device_label||r.connector_id} <small style="font-weight:400;opacity:.7;">${r.device_host||''}</small></span>
+        <span style="font-size:12px;opacity:.8;">${platLabel}</span>
+      </div>
+      <div style="padding:8px 16px;background:var(--bg2,#f8f9fa);display:flex;gap:20px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);">
+        <span>📅 ${scanTime}</span>
+        <span>👤 ${r.triggered_by||'—'}</span>
+        <span style="color:${statusColor};">${statusLabel}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;">${detailHtml}</table>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function _healthRow(label, value) {
+  return `<tr>
+    <td style="padding:6px 12px;font-size:12px;color:var(--muted);width:160px;border-bottom:1px solid var(--border);">${label}</td>
+    <td style="padding:6px 12px;font-size:13px;font-weight:500;border-bottom:1px solid var(--border);">${value}</td>
+  </tr>`;
+}
+
+function downloadHealthPdf() {
+  if (!_lastHealthRecordIds.length) return;
+  const ids = _lastHealthRecordIds.join(',');
+  window.open(`/api/device-health/report/pdf?record_ids=${ids}`, '_blank');
+}
+
 </script>
 
 <!-- Floating bulk toolbar -->

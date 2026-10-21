@@ -11,15 +11,19 @@ logger = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
 _scan_func = None
+_health_func = None
 
 JOB_ID       = "nightly_scan"
+HEALTH_JOB_ID = "nightly_health"
 DEFAULT_HOUR = 2
 DEFAULT_MIN  = 0
 
 
-def setup_scheduler(scan_func) -> BackgroundScheduler:
+def setup_scheduler(scan_func, health_func=None) -> BackgroundScheduler:
     global _scheduler, _scan_func
     _scan_func = scan_func
+    global _health_func
+    _health_func = health_func
 
     _scheduler = BackgroundScheduler(timezone="Europe/Istanbul")
     _scheduler.start()
@@ -93,3 +97,46 @@ def shutdown_scheduler():
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         _scheduler = None
+
+
+HEALTH_DEFAULT_HOUR = 3
+HEALTH_DEFAULT_MIN  = 0
+
+
+def apply_health_schedule(hour: int, minute: int, enabled: bool):
+    """Cihaz sağlık taraması zamanlamasını günceller."""
+    if not _scheduler:
+        return
+    _scheduler.remove_job(HEALTH_JOB_ID) if _scheduler.get_job(HEALTH_JOB_ID) else None
+    if not enabled or not _health_func:
+        return
+    _scheduler.add_job(
+        _health_func,
+        CronTrigger(hour=hour, minute=minute),
+        id=HEALTH_JOB_ID,
+        name=f"Günlük Cihaz Sağlık Taraması ({hour:02d}:{minute:02d})",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    logger.info("Sağlık zamanlayıcı güncellendi — her gün %02d:%02d", hour, minute)
+
+
+def get_health_scheduler_status() -> dict:
+    if not _scheduler:
+        return {"enabled": False, "next_run": None, "hour": HEALTH_DEFAULT_HOUR, "minute": HEALTH_DEFAULT_MIN}
+    job = _scheduler.get_job(HEALTH_JOB_ID)
+    next_run = job.next_run_time if job else None
+    hour, minute = HEALTH_DEFAULT_HOUR, HEALTH_DEFAULT_MIN
+    if job:
+        try:
+            for field in job.trigger.fields:
+                if field.name == "hour":   hour   = int(str(field))
+                elif field.name == "minute": minute = int(str(field))
+        except Exception:
+            pass
+    return {
+        "enabled": bool(job),
+        "next_run": next_run.isoformat() if next_run else None,
+        "hour": hour,
+        "minute": minute,
+    }

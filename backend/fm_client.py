@@ -216,7 +216,7 @@ class FortiManagerClient:
 
         action_raw = pol.get("action", "deny")
         action = "accept" if (isinstance(action_raw, int) and action_raw == 1) \
-            else ("accept" if str(action_raw).lower() == "accept" else "deny")
+            else ("accept" if str(action_raw).lower() in ("accept", "allow") else "deny")
 
         log_raw = pol.get("logtraffic", "disable")
         if isinstance(log_raw, int):
@@ -355,3 +355,70 @@ class FortiManagerClient:
             })
         return result
 
+
+    # ── Healthcheck ───────────────────────────────────────────────────────
+
+    def get_system_status(self) -> dict:
+        """FM /sys/status endpoint'i — versiyon, serial, hostname bilgisi."""
+        try:
+            data = self._rpc("get", [{"url": "/sys/status"}])
+            if isinstance(data, list) and data:
+                data = data[0]
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {}
+        return {
+            "hostname":    str(data.get("Hostname",    data.get("hostname",    "")) or ""),
+            "serial":      str(data.get("Serial Number", data.get("serial",   "")) or ""),
+            "version":     str(data.get("Version",     data.get("version",    "")) or ""),
+            "platform":    str(data.get("Platform",    data.get("platform",   "")) or ""),
+            "max_adoms":   str(data.get("Max ADOMs",   data.get("max-adoms",  "")) or ""),
+            "current_adoms": str(data.get("Current ADOMs", "") or ""),
+        }
+
+    def get_device_list(self) -> list:
+        """Yönetilen cihaz listesi — model, OS versiyon, bağlantı durumu."""
+        try:
+            data = self._rpc("get", [{"url": "/dvmdb/device",
+                                      "option": ["get used", "get reserved"]}])
+        except Exception:
+            return []
+        devices = []
+        for d in self._as_list(data):
+            if not isinstance(d, dict):
+                continue
+            devices.append({
+                "name":      str(d.get("name",          "") or ""),
+                "hostname":  str(d.get("hostname",      "") or ""),
+                "model":     str(d.get("device_model",  d.get("os_ver", "")) or ""),
+                "os_ver":    str(d.get("os_ver",        "") or ""),
+                "platform":  str(d.get("platform",      "") or ""),
+                "conn_status": str(d.get("conn_status", d.get("connection_status", "")) or ""),
+                "mgmt_ip":   str(d.get("ip",            "") or ""),
+                "serial":    str(d.get("sn",            d.get("serial", "")) or ""),
+                "ha_mode":   str(d.get("ha_mode",       "") or ""),
+                "ha_group":  str(d.get("ha_group_name", "") or ""),
+            })
+        return devices
+
+    def get_license_info(self) -> dict:
+        """FM lisans bilgisi /sys/license/status."""
+        try:
+            data = self._rpc("get", [{"url": "/sys/license/status"}])
+            if isinstance(data, list) and data:
+                data = data[0]
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {}
+        return data if isinstance(data, dict) else {}
+
+    def healthcheck(self) -> dict:
+        self.login()
+        return {
+            "platform": "fortimanager",
+            "status":   self.get_system_status(),
+            "devices":  self.get_device_list(),
+            "license":  self.get_license_info(),
+        }

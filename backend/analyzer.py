@@ -254,7 +254,7 @@ def _find_geo_addrs(addrs: List[str]) -> List[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fm_is_any(addr_list: List[str]) -> bool:
-    return any(a in FM_ANY_ADDRS for a in addr_list)
+    return any(a.lower() in {"all", "any"} for a in addr_list)
 
 
 def analyze_fortimanager_adom(adom: Dict[str, Any]) -> ScanResult:
@@ -640,9 +640,10 @@ def analyze_paloalto_vsys(vsys: Dict[str, Any]) -> ScanResult:
 class FirewallAnalyzer:
     def scan_all(self, fm_data: Dict, pa_data: Dict,
                  device_label: str = "", device_host: str = "",
-                 parent_device_id: str = "") -> List[ScanResult]:
+                 parent_device_id: str = "",
+                 fg_data: Dict = None) -> List[ScanResult]:
         """
-        fm_data / pa_data: mock ya da gerçek API'dan gelen veri.
+        fm_data / pa_data / fg_data: mock ya da gerçek API'dan gelen veri.
         device_label / device_host / parent_device_id: hangi fiziksel cihazdan geldiği bilgisi.
         """
         results = []
@@ -656,9 +657,17 @@ class FirewallAnalyzer:
             vsys["_device_host"]      = device_host
             vsys["_parent_device_id"] = parent_device_id
             results.append(analyze_paloalto_vsys(vsys))
+        for vdom in (fg_data or {}).get("vdoms", []):
+            vdom["_device_label"]     = device_label
+            vdom["_device_host"]      = device_host
+            vdom["_device_id"]        = (
+                f"{parent_device_id}__{vdom.get('name','')}"
+                if parent_device_id else f"fg_{vdom.get('name','')}"
+            )
+            results.append(analyze_fortigate_vdom(vdom))
         return results
 
-    def scan_device(self, device: Dict, fm_data: Dict = None, pa_data: Dict = None) -> List[ScanResult]:
+    def scan_device(self, device: Dict, fm_data: Dict = None, pa_data: Dict = None, fg_data: Dict = None) -> List[ScanResult]:
         """
         Tek bir fiziksel cihazı tara.
         device: connectors.FIREWALL_DEVICES içindeki bir kayıt.
@@ -672,4 +681,141 @@ class FirewallAnalyzer:
             return self.scan_all(fm_data, {}, device_label=label, device_host=host, parent_device_id=pid)
         elif dtype == "paloalto" and pa_data:
             return self.scan_all({}, pa_data, device_label=label, device_host=host, parent_device_id=pid)
+        elif dtype == "fortigate" and fg_data:
+            return self.scan_all({}, {}, device_label=label, device_host=host, parent_device_id=pid, fg_data=fg_data)
         return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FortiGate (Doğrudan) Analiz
+# ══════════════════════════════════════════════════════════════════════════════
+
+def analyze_fortigate_vdom(vdom: Dict[str, Any]) -> ScanResult:
+    """
+    FortiGate'ten gelen tek bir VDOM'un politikalarını analiz eder.
+    Politika yapısı FM ile aynı normalize formatta beklenir.
+    """
+    device_name = vdom["name"]
+    customer    = vdom.get("customer", device_name)
+    policies    = vdom.get("policies", [])
+    device_id   = vdom.get("_device_id", f"fg_{device_name}")
+    device_label= vdom.get("_device_label", "")
+    device_host = vdom.get("_device_host", "")
+    findings: List[Finding] = []
+
+    for pol in policies:
+        pid      = pol.get("policyid", "?")
+        pname    = pol.get("name", f"policy-{pid}")
+        src      = pol.get("srcaddr", [])
+        dst      = pol.get("dstaddr", [])
+        services = pol.get("service", [])
+        action   = pol.get("action", "deny").lower()
+        log_val  = pol.get("logtraffic", "enable").lower()
+        status   = pol.get("status", "enable").lower()
+        comments = pol.get("comments", "")
+
+        details: Dict[str, Any] = {
+            "Kaynak Adres": ", ".join(src),
+            "Hedef Adres":  ", ".join(dst),
+            "Servis":       ", ".join(services),
+            "Aksiyon":      action.upper(),
+            "Log":          log_val,
+            "Durum":        status,
+            "Açıklama":     comments or "(yok)",
+            "VDOM":         device_name,
+        }
+
+        src_any = _fm_is_any(src)
+        dst_any = _fm_is_any(dst)
+        svc_any = ("ALL" in [s.upper() for s in services] or _fm_is_any(services))
+
+        # ── ACİL: Any-Any-Any ────────────────────────────────────────────
+        if action == "accept" and src_any and dst_any and svc_any:
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.ACIL,
+                "Any-Any-Any Kuralı",
+                "Kaynak, hedef ve servis alanlarının tamamı 'any/all'. Tüm trafiğe izin veriliyor.",
+                "Kuralı mümkün olan en kısıtlı kaynak/hedef/servis kombinasyonuyla yeniden yazın.",
+                details,
+            ))
+
+        # ── KRİTİK: Kaynak=Any ───────────────────────────────────────────
+        if action == "accept" and src_any and not (dst_any and svc_any):
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.CRITICAL,
+                "Kaynak Kısıtsız Erişim",
+                "Kaynak adres 'any/all'; herhangi bir IP'den bu kurala erişilebilir.",
+                "Kaynak adres alanını yalnızca yetkili IP bloğuyla sınırlandırın.",
+                details,
+            ))
+
+        # ── KRİTİK: Hedef=Any ────────────────────────────────────────────
+        if action == "accept" and dst_any and not src_any:
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.CRITICAL,
+                "Hedef Kısıtsız Erişim",
+                "Hedef adres 'any/all'; trafik herhangi bir hedefe yönlendirilebilir.",
+                "Hedef adres alanını yalnızca gerekli sunucu/subnet ile sınırlandırın.",
+                details,
+            ))
+
+        # ── KRİTİK: Servis=ALL ───────────────────────────────────────────
+        if action == "accept" and svc_any and not src_any and not dst_any:
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.CRITICAL,
+                "Servis Kısıtsız Erişim",
+                "Servis alanı 'ALL/any'; tüm portlar üzerinden bağlantıya izin veriliyor.",
+                "Servis alanını yalnızca gerekli protokol ve portlarla sınırlandırın.",
+                details,
+            ))
+
+        # ── KRİTİK: Yüksek riskli portlar ──────────────────────────────
+        high_risk = _detect_high_risk_ports(services)
+        if action == "accept" and high_risk:
+            port_list = ", ".join(high_risk)
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.CRITICAL,
+                "Kritik Port Kullanımı",
+                f"Yönetim veya kritik protokol portları ({port_list}) doğrudan izin verilmiş.",
+                "Bu portları VPN/jump-host arkasına alın veya kaynak/hedef kısıtlaması ekleyin.",
+                details,
+            ))
+
+        # ── YÜKSEK: Log kapalı ─────────────────────────────────────────
+        if action == "accept" and log_val in ("disable", "0"):
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.HIGH,
+                "Log Kapalı",
+                "Bu kural için trafik loglama devre dışı bırakılmış; olay görünürlüğü yok.",
+                "Kural üzerinde en az 'utm' veya 'all' düzeyinde loglama etkinleştirin.",
+                details,
+            ))
+
+        # ── ORTA: Yorum eksik ──────────────────────────────────────────
+        if not comments:
+            findings.append(_finding(
+                Platform.FORTIMANAGER, device_name, customer, pid, pname,
+                Severity.MEDIUM,
+                "Kural Açıklaması Eksik",
+                "Kural amacını açıklayan bir yorum alanı bulunmuyor.",
+                "Kuralın amacını, oluşturulma tarihini ve yetkili kişiyi yorum alanına ekleyin.",
+                details,
+            ))
+
+    return ScanResult(
+        device_id    = device_id,
+        device_name  = device_name,
+        device_label = device_label,
+        device_host  = device_host,
+        platform     = Platform.FORTIMANAGER,
+        customer     = customer,
+        total_rules  = len(policies),
+        findings     = findings,
+        scanned_at   = datetime.utcnow(),
+    )
