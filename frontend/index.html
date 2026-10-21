@@ -2289,12 +2289,11 @@ async function triggerHealthScan() {
   btn.textContent = '⏳ Taranıyor...';
   status.textContent = '';
   try {
-    const res = await fetch('/api/device-health/scan', {
+    const res = await api('/api/device-health/scan', {
       method: 'POST',
-      headers: {'Content-Type':'application/json', ...authHeader()},
       body: JSON.stringify({}),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res) throw new Error('Sunucu yanıt vermedi');
     const data = await res.json();
     const ok   = data.results.filter(r => r.status === 'completed').length;
     const fail = data.results.filter(r => r.status === 'failed').length;
@@ -2314,8 +2313,8 @@ async function triggerHealthScan() {
 
 async function loadHealthHistory() {
   try {
-    const res = await fetch('/api/device-health?limit=50', {headers: authHeader()});
-    if (!res.ok) return;
+    const res = await api('/api/device-health?limit=50');
+    if (!res) return;
     const data = await res.json();
     if (!data.records || data.records.length === 0) return;
     _lastHealthRecordIds = data.records.map(r => r.id);
