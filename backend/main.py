@@ -95,7 +95,7 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
         for dev in fm_devices:
             label = dev.get("label", dev["id"])
             try:
-                if dev.get("mock", True):
+                if dev.get("mock", False):
                     fm_data = FORTIMANAGER_MOCK
                 else:
                     client = FortiManagerClient(
@@ -112,7 +112,7 @@ def _do_scan_core(db: Session, session: db_models.ScanSession, device_ids: Optio
         for dev in pa_devices:
             label = dev.get("label", dev["id"])
             try:
-                if dev.get("mock", True):
+                if dev.get("mock", False):
                     pa_data = PALOALTO_MOCK
                 else:
                     client = PaloAltoClient(
