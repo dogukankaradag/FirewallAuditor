@@ -11,6 +11,7 @@ Response yapısı:
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+from urllib.parse import quote
 
 import requests
 import urllib3
@@ -130,14 +131,24 @@ class FortiManagerClient:
         data  = self._rpc("get", [{"url": "/dvmdb/adom"}])
         items = self._as_list(data)
 
-        skip  = {"fortiananalyzer", "fortianalyzer"}
+        skip         = {"fortiananalyzer", "fortianalyzer"}
+        demo_keywords = {"demo", "Demo"}
+
         adoms = [
             item["name"]
             for item in items
             if isinstance(item, dict)
             and item.get("name", "").strip()
             and item["name"].lower() not in skip
+            and not any(kw.lower() in item["name"].lower() for kw in demo_keywords)
         ]
+        skipped_demo = [
+            item["name"] for item in items
+            if isinstance(item, dict) and item.get("name", "").strip()
+            and any(kw.lower() in item["name"].lower() for kw in demo_keywords)
+        ]
+        if skipped_demo:
+            log.info("Demo ADOM'lar atlandı: %s", skipped_demo)
 
         log.info("get_adoms → %d ADOM bulundu", len(adoms))
         return adoms
@@ -186,8 +197,8 @@ class FortiManagerClient:
         """
         data = self._rpc(
             "get",
-            [{"url": f"/pm/config/adom/{adom}/pkg/{package}/firewall/policy",
-              "option": ["get reserved"]}],
+            [{"url": "/pm/config/adom/" + quote(str(adom), safe="") + "/pkg/" + quote(str(package), safe="") + "/firewall/policy",
+              "range": [0, 5000]}],
         )
         raw = self._as_list(data)
         return [self._normalize_policy(p) for p in raw if isinstance(p, dict)]
